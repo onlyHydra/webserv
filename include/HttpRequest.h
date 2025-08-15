@@ -10,88 +10,255 @@ Date: 8/10/2025
 
 # include <string>
 # include <vector>
+# include <errno.h>
 # include "Headers.h"
 # include "CookieJar.h"
 
+# ifndef ERR_HTTP_BAD_REQUEST
+#  define ERR_HTTP_BAD_REQUEST 400
+# endif
+# ifndef ERR_HTTP_HEADER_LIMIT
+#  define ERR_HTTP_HEADER_LIMIT 431
+# endif
+
 using namespace std;
 
+/**
+ * For HttpRequest->state
+ * Represents in which stage / state of parsing it is
+ */
+enum HttpRequestState
+{
+	START,
+	HEADER,
+	NEWLINE,
+	BODY,
+	OVER,
+	ERROR
+};
+
+
+/**
+ * @brief Function that represents a full Http Request
+ * ---------------------------------------------------
+ * Has a Starting Line that looks like
+ * <method> <path> <http_version>
+ * then has a Header, consisting of many key-value pairs
+ * <key1>: <value>
+ * <key2>: <value>
+ * ....
+ * And may then have a body, based on the method
+ * ---------------------------------------------------
+ * Use the parse() member function to feed it input to parse
+ * Use getState to see in which state the Request is (see HttpRequestState)
+ * Use the getter functions to get the fields set by the parser
+ * DO NOT USE:
+ * handleLineStart(), handleLineHeader(), handleLineBody(), handleLine() and handleInput()
+ * They are extensions of the form function, and should only get highly specific input
+ * ---------------------------------------------------
+ * Sets errno to ERR_HTTP_BAD_REQUEST on bad input
+ * Sets errno to ERR_HTTP_HEADER_LIMIT when too many Header fields are given
+ */
 class HttpRequest
 {
+	private:
+		string method;
+		string path;
+		string http_version;
+		string uri;
+		string query;
+		string session_id;
+		size_t	bodyLength;
+		Headers headers;
+		CookieJar cookies;
+		vector<char> body;
+		string buffer;
+		enum HttpRequestState state;
 	public:
 		HttpRequest();
+
 		~HttpRequest();
+
 		/**
 		 * @returns wether session is still alive
+		 * For Later
+		 * PLACEHOLDER
 		 */
 		bool	keepAlive(void) const;
+
 		/**
 		 * For Later
 		 * PLACEHOLDER
 		 */
 		bool	headerAsSize(string k, size_t &v) const;
+
 		/**
 		 * For Later
 		 * PLACEHOLDER
 		 */
 		string	extension() const;
+
 		/**
-		 * Incremental parser
-		 * Parse information from Client to build Header and Request
-		 * @param data Data stream to parse from
-		 * @param n Amount of bytes data is big
-		 * @returns false if parsing failed
-		 * @returns true if it worked
+		 * @name handleLineStart
+		 * @brief DONT USE DIRECTLY | Parses a given line as a valid Starting Line
+		 * @param in Line to be handled
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed
+		 * Error checks:
+		 * - Space after Method (400)
+		 * - Valid Method (400)
+		 * - Space after Path (400)
+		 * - Valid Path (400)
+		 * - \r\n after Http Version (400)
+		 * - Valid Http Version (400)
+		 * - Ending after \r\n (400)
+		 */
+		int	handleLineStart(const std::string &in);
+
+		/**
+		 * @name handleLineHeader
+		 * @brief DONT USE DIRECTLY | Parses a given line as Header Information
+		 * @param in Line to be handled
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed
+		 * Treats Content-Length key special, as it is required to have a body
+		 * Error checks:
+		 * - Colon after Key (400)
+		 * - Valid Key (400)
+		 * - \r\n after Value (400)
+		 * - Valid Value (400)
+		 * - Ending after \r\n (400)
+		 * - Would exceed Header Size Limit (431)
+		 */
+		int	handleLineHeader(const std::string &in);
+
+		/**
+		 * @name handleLineBody
+		 * @brief DONT USE DIRECTLY | Parses a given line as Body Information
+		 * @param in Line to be handled
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed
+		 * Takes each character from the passed line and puts it
+		 * to the back of the body vector
+		 * Error checks:
+		 * - Only specific Methods may have a body (400)
+		 * - Body may only exists, when Content-Length key exists in Header (400)
+		 * - Body may not exceed the specified ContentLength (400)
+		 */
+		int	handleLineBody(const std::string &in);
+
+		/**
+		 * @name handleLine
+		 * @brief DONT USE DIRECTLY | Gets a line from our buffer, and handles it
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed
+		 * Executes different handlers based on the current state
+		 * Error checks:
+		 *  - Request is finished (400)
+		 *  - Request ended in error (400, 431)
+		 *  - Invalid state (400)
+		 */
+		int	handleLine(const std::string &in);
+
+		/**
+		 * @brief DONT USE DIRECTLY | Runs on the buffer, parsing its information
+		 * @param activity will be set to true, if function did work
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed (400, 431)
+		 * If not at Body Parsing, then the content can only be handled if a \r\n is present
+		 * If at Body Parsing, whole buffer will be handled
+		 */
+		int	handleInput(bool &activity);
+
+		/**
+		 * @name parse
+		 * @brief Iterated Input Parser
+		 * Will save the given input into a buffer, handling it whenever possible
+		 * Runs execution code based on the stage (state) it is in currently
+		 * When state is Over or Error, does nothing
+		 * @param data C String containing information for the parser
+		 * @param n the exact number of characters that data is big
+		 * @returns true if it parsed correctly
+		 * @returns false if error
+		 * Error Checks:
+		 * - Request is finished
+		 * - Given length is 0 or less
+		 * - Request has valid syntax for current stage
 		 */
 		bool	parse(const char* data, size_t n);
+
 		/**
 		 * @returns method, meaning the full Start line of the Request
 		 */
-		string	getMethod(void);
+		string	getMethod(void) const;
+		
 		/**
 		 * For Later
 		 * PLACEHOLDER
 		 */
-		string	getUri(void);
+		string	getUri(void) const;
+
 		/**
 		 * @returns path, part of the method
 		 */
-		string	getPath(void);
+		string	getPath(void) const;
+
 		/**
 		 * For Later
 		 * PLACEHOLDER
 		 */
-		string	getQuery(void);
+		string	getQuery(void) const;
+
 		/**
 		 * @returns Sesion ID
 		 */
-		string	getSessId(void);
+		string	getSessId(void) const;
+
+		/**
+		 * @returns Length of how many bytes should be in body
+		 */
+		size_t getBodyLength(void) const;
+
 		/**
 		 * @returns http version, part of the method
 		 */
-		string	getHttpVer(void);
+		string	getHttpVer(void) const;
+
+		/**
+		 * @returns buffer from what is left of parsing
+		 */
+		string getBuffer(void) const;
+
 		/**
 		 * @returns Headers from this response
 		 */
-		string	getHeaders(void);
+		Headers	getHeaders(void) const;
+
 		/**
 		 * @returns Cookies from this response
 		 */
-		string	getCookies(void);
+		CookieJar getCookies(void) const;
+
 		/**
 		 * @returns Body of the response as vector
 		 */
-		string	getBody(void);
-	private:
-		string method;
-		string uir;
-		string path;
-		string query;
-		string session_id;
-		string http_version;
-		Headers headers;
-		CookieJar cookies;
-		vector<char> body;
+		vector<char> getBody(void) const;
+
+		/**
+		 * @returns State of the Http Request
+		 */
+		enum HttpRequestState getState(void) const;
 };
+
+/**
+ * DANGER
+ * PLACEHOLDER
+ * USES THE ostream.write external function
+ * which isnt allowed
+ * DELETE LATER
+ * ...or keep it for debugging
+ */
+std::ostream &operator<<(std::ostream &out, const HttpRequest &target);
 
 #endif // HTTPREQUEST_H
 
