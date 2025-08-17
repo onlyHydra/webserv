@@ -66,7 +66,7 @@ class Server
 	private:
 		EventLoop loop;
 		ServerConfig &srvConfig;
-		 std::vector<Listener*> listeners;
+		std::vector<Listener*> listeners;
 		std::map<int, std::map<std::string, int> > host_map_by_port; // port -> (host -> vs_index)
 		std::map<int, int> default_vs_by_port;						 // port -> default vs_index
 
@@ -275,6 +275,10 @@ class Server
 		 */
 		void setCloseOnExec(int fd);
 
+		int resolveVirtualServerByPort(int localPort, const std::string& hostHdr) const;
+
+		const ServerConfig&	getConfig()const;
+
 		#ifdef UNIT_TEST
 		public:
 			size_t listenerCount() const { return listeners.size(); }
@@ -342,7 +346,7 @@ class AcceptorHandler : public EventLoop::Handler {
 					catch (...) { ::close(cfd); continue; }
 
 					// register client handler
-					ClientConnection* c = new ClientConnection(cfd);
+					ClientConnection* c = new ClientConnection(cfd,&_srv);
 					eventLoop.addFD(cfd, POLLIN, new ClientHandler(eventLoop, c));
 				}
 			}

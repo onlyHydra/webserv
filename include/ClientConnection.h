@@ -17,6 +17,10 @@ Date: 8/10/2025
 #include <sys/socket.h>
 
 #include "UniqueFD.h"
+#include "Router.h"
+#include "RouteResolver.h"
+
+class Server;
 
 enum State
 {
@@ -71,7 +75,8 @@ class ClientConnection
 		std::vector<char> outBuffer;
 		size_t parseOffset;
 		size_t outOffset;
-
+		const Server * server;
+		int vs_idx;
 		/**
 		 * @brief Reads data from the client socket into inBuffer.
 		 *
@@ -109,7 +114,8 @@ class ClientConnection
 		static const size_t MAX_INBUFFER = 1 << 20;
 
 	public:
-		explicit ClientConnection(int fd) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0) {}
+		explicit ClientConnection(int fd) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0) {}		
+		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0), server(srv) {}
 		~ClientConnection() {};
 		/**
 		 * @brief Retrieves the current state of the client connection.

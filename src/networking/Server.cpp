@@ -309,3 +309,42 @@ void Server::run(int poll_timeout_ms) {
 	if (listeners.empty()) start();
 	loop.run(poll_timeout_ms);
 }
+
+static std::string normalize_host(const std::string &h)
+{
+	std::string s = h;
+	for (size_t i = 0; i < s.size(); ++i)
+	{
+		unsigned char c = static_cast<unsigned char>(s[i]);
+		if (c >= 'A' && c <= 'Z')
+			s[i] = char(c - 'A' + 'a');
+	}
+	if (!s.empty() && s[0] == '[')
+	{
+		std::string::size_type rb = s.find(']');
+		if (rb != std::string::npos)
+			return s.substr(0, rb + 1);
+		return s;
+	}
+	std::string::size_type cpos = s.find(':');
+	return (cpos == std::string::npos) ? s : s.substr(0, cpos);
+}
+
+int Server::resolveVirtualServerByPort(int localPort, const std::string &hostHdr) const
+{
+	const std::string key = normalize_host(hostHdr);
+	std::map<int, std::map<std::string, int> >::const_iterator pm = host_map_by_port.find(localPort);
+	if (pm != host_map_by_port.end())
+	{
+		std::map<std::string, int>::const_iterator it = pm->second.find(key);
+		if (it != pm->second.end())
+			return it->second;
+	}
+	std::map<int, int>::const_iterator d = default_vs_by_port.find(localPort);
+	return (d != default_vs_by_port.end()) ? d->second : -1;
+}
+
+const ServerConfig& Server::getConfig()const
+{
+	return srvConfig;
+}

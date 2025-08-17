@@ -6,6 +6,23 @@ date: 8/10/2025
 ------------------------------------------ */
 
 #include "ClientConnection.h"
+#include "Server.h"
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <cstring>
+
+static int get_local_port(int fd)
+{
+	struct sockaddr_storage ss = sockaddr_storage();
+	socklen_t sl = sizeof(ss);
+	if (::getsockname(fd, (struct sockaddr *)&ss, &sl) != 0)
+		return -1;
+	if (ss.ss_family == AF_INET)
+		return (int)ntohs(((sockaddr_in *)&ss)->sin_port);
+	if (ss.ss_family == AF_INET6)
+		return (int)ntohs(((sockaddr_in6 *)&ss)->sin6_port);
+	return -1;
+}
 
 void ClientConnection::changeState(State state)
 {
@@ -85,6 +102,24 @@ bool ClientConnection::processIncoming()
 
 	if (headersComplete(inBuffer, parseOffset))
 	{
+		// TODO: parse method/target/Host from inBuffer. For now, placeholders:
+
+		const int local_port = get_local_port(fd.get());
+		int vs_idx = -1;
+		if (server && local_port > 0)
+		{
+			vs_idx = server->resolveVirtualServerByPort(local_port, "localhost");
+		}
+		RouteDecision plan; // defaults HK_ERROR/500
+		if (server && vs_idx >= 0)
+		{
+			Router::makeDecisionForVS(server->getConfig(), vs_idx, "GET", "/", plan);
+		}
+		else
+		{
+			plan.kind = RouteDecision::HK_ERROR;
+			plan.status = 400;
+		}
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());
 		changeState(WRITE);
@@ -158,7 +193,7 @@ void ClientConnection::readFromSocket()
 
 		if (n == 0)
 		{
-			if(processIncoming())
+			if (processIncoming())
 				return;
 			close();
 			return;
