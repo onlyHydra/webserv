@@ -192,7 +192,6 @@ int	HttpRequest::handleLineBody(const std::string &in)
 
 int	HttpRequest::handleLine(const std::string &in)
 {
-	std::cout << "Handling line [" << in << "] at state " << this->state << std::endl; 
 	if (this->state == OVER || this->state == ERROR)
 		return (ERR_HTTP_BAD_REQUEST);
 	if (this->state == START)

@@ -96,6 +96,12 @@ TEST_CASE("HTTP Request", "[https]")
 			REQUIRE(x.parse("12345", 5) == false);
 			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
 		}
+			{ // SHOULD FAIL, but doesnt
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length:bla\r\nkey:value\r\n\r\nI", 46) == true);
+			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
+		}
 	}
 	SECTION("Valid Start Line")
 	{
