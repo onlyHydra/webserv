@@ -74,6 +74,9 @@ TEST_CASE("HTTP Request", "[https]")
 			REQUIRE(x.parse("12345", 5) == false);
 			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
 		}
+	}
+	SECTION("Content Length Tests")
+	{
 		{
 			// Invalid, because Content Length too low
 			HttpRequest x;
@@ -82,7 +85,7 @@ TEST_CASE("HTTP Request", "[https]")
 			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
 		}
 		{
-			// Invalid, because Content Length too high
+			// Invalid, because Content Length too low
 			HttpRequest x;
 			x.parse("PUT /path Https\r\nContent-Length: 2\r\nkey: value\r\n\r\n", 50);
 			REQUIRE(x.parse("12345", 5) == false);
@@ -92,14 +95,43 @@ TEST_CASE("HTTP Request", "[https]")
 			// Invalid, because Content Length too low
 			HttpRequest x;
 			x.parse("PUT /path Https\r\nContent-Length: 5\r\nkey: value\r\n\r\n", 50);
-			REQUIRE(x.parse("abcd", 5) == true);
+			REQUIRE(x.parse("abcd", 4) == true);
 			REQUIRE(x.parse("12345", 5) == false);
 			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
 		}
-			{ // SHOULD FAIL, but doesnt
+		{ 
+			// Invalid Content Length
 			HttpRequest x;
 			errno = 0;
-			REQUIRE(x.parse("PUT / Http\r\nContent-Length:bla\r\nkey:value\r\n\r\nI", 46) == true);
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length:bla\r\nkey:value\r\n\r\nI", 46) == false);
+			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
+		}
+		{
+			// Negative value for Content Length
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length: -1\r\nkey:value\r\n\r\nI", 46) == false);
+			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
+		}
+		{
+			// Too big of a value for Content Length
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length:99999999999999999999999999\r\nkey:value\r\n\r\nI", 69) == false);
+			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
+		}
+		{
+			// MAX_INT Content Length
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length:2147483647\r\nkey:value\r\n\r\nI", 53) == true);
+			REQUIRE(errno == 0);
+		}
+		{
+			// MAX_INT +1  Content Length
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("PUT / Http\r\nContent-Length:2147483648\r\nkey:value\r\n\r\nI", 53) == false);
 			REQUIRE(errno == ERR_HTTP_BAD_REQUEST);
 		}
 	}

@@ -134,6 +134,8 @@ int	HttpRequest::handleLineHeader(const std::string &in)
 {
 	size_t	i = 0;
 	size_t	pos = 0;
+	int		contLength = 0;
+	bool	atoiError;
 	std::string key;
 	std::string value;
 
@@ -167,8 +169,10 @@ int	HttpRequest::handleLineHeader(const std::string &in)
 		return (ERR_HTTP_HEADER_LIMIT);
 	if (key == "Content-Length")
 	{
-		std::stringstream ss(value);
-		ss >> this->bodyLength;
+		contLength = Atoi::atoiHttpReq(value.c_str(), atoiError);
+		if (atoiError)
+			return (ERR_HTTP_BAD_REQUEST);
+		this->bodyLength = contLength;
 	}
 	return (0);
 }
