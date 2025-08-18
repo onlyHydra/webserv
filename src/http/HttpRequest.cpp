@@ -237,7 +237,6 @@ int	HttpRequest::handleInput(bool &activity)
 	return (this->handleLine(line));
 }
 
-
 bool	HttpRequest::parse(const char* data, size_t n)
 {
 	bool activity = true;

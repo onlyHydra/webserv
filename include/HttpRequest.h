@@ -22,11 +22,6 @@ Date: 8/10/2025
 #  define ERR_HTTP_HEADER_LIMIT 431
 # endif
 
-// Populate the query field
-// Add getter for query
-// Add verifyign function for the headers
-
-
 using namespace std;
 
 /**
@@ -45,7 +40,7 @@ enum HttpRequestState
 
 
 /**
- * @brief Function that represents a full Http Request
+ * @brief Class that represents a full Http Request
  * ---------------------------------------------------
  * Has a Starting Line that looks like
  * <method> <path> <http_version>
@@ -64,6 +59,9 @@ enum HttpRequestState
  * ---------------------------------------------------
  * Sets errno to ERR_HTTP_BAD_REQUEST on bad input
  * Sets errno to ERR_HTTP_HEADER_LIMIT when too many Header fields are given
+ * ---------------------------------------------------
+ * Points of failure:
+ * Does not handle the query field, session_id and uri so far
  */
 class HttpRequest
 {
@@ -72,7 +70,7 @@ class HttpRequest
 		string path;
 		string http_version;
 		string uri;
-		string query; // anytthing after ?= in the path
+		string query;
 		string session_id;
 		size_t	bodyLength;
 		Headers headers;
@@ -80,7 +78,8 @@ class HttpRequest
 		vector<char> body;
 		string buffer;
 		enum HttpRequestState state;
-				/**
+
+		/**
 		 * @name handleLineStart
 		 * @brief DONT USE DIRECTLY | Parses a given line as a valid Starting Line
 		 * @param in Line to be handled
@@ -142,15 +141,6 @@ class HttpRequest
 		 */
 		int	handleLine(const std::string &in);
 
-		/**
-		 * @brief DONT USE DIRECTLY | Runs on the buffer, parsing its information
-		 * @param activity will be set to true, if function did work
-		 * @returns 0 if Operation worked
-		 * @returns HTTP Error Codes if Parsing failed (400, 431)
-		 * If not at Body Parsing, then the content can only be handled if a \r\n is present
-		 * If at Body Parsing, whole buffer will be handled
-		 */
-		int	handleInput(bool &activity);
 	public:
 		HttpRequest();
 
@@ -176,15 +166,29 @@ class HttpRequest
 		string	extension() const;
 
 		/**
-		 * @name parse
-		 * @brief Iterated Input Parser
+		 * ----------------------------------------------------------------------
+		 * @brief Tell the Request to handle whatever is stored in its buffer
+		 * @param activity will be set to true, if function worked
+		 * @returns 0 if Operation worked
+		 * @returns HTTP Error Codes if Parsing failed (400, 431)
+		 * @warning Calling it will not do much, as the buffer will always be emptied as much as
+		 * @warning possible after parse() is called. So dont do it.
+		 * If not at Body Parsing, then the content can only be handled if a \r\n is present
+		 * If at Body Parsing, whole buffer will be handled
+		 */
+		int	handleInput(bool &activity);
+
+		/**
 		 * Will save the given input into a buffer, handling it whenever possible
 		 * Runs execution code based on the stage (state) it is in currently
 		 * When state is Over or Error, does nothing
+		 * ----------------------------------------------------------------------
+		 * @brief Iterated Input Parser
 		 * @param data C String containing information for the parser
 		 * @param n the exact number of characters that data is big
 		 * @returns true if it parsed correctly
 		 * @returns false if error
+		 * @warning param data ALWAYS has to be new information, as calls will chain information
 		 * Error Checks:
 		 * - Request is finished
 		 * - Given length is 0 or less
