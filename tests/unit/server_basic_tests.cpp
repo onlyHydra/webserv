@@ -46,8 +46,8 @@ TEST_CASE("Server starts one listener for multiple VS on same (host,port)", "[se
 	vs2.listen_host = "127.0.0.1";
 	vs2.listen_port = port;
 	vs2.server_names.push_back("b.local");
-	cfg.servers.push_back(vs1);
-	cfg.servers.push_back(vs2);
+	cfg.push_back(vs1);
+	cfg.push_back(vs2);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -70,8 +70,8 @@ TEST_CASE("Server starts multiple listeners for different (host, port)", "[serve
 	VirtualServer vs2;
 	vs2.listen_host = "127.0.0.1";
 	vs2.listen_port = port2;
-	cfg.servers.push_back(vs1);
-	cfg.servers.push_back(vs2);
+	cfg.push_back(vs1);
+	cfg.push_back(vs2);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -103,7 +103,7 @@ TEST_CASE("Server surfaces bind failure cleanly", "[server][errors]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_THROWS_AS(s.start(), std::runtime_error);
@@ -119,7 +119,7 @@ TEST_CASE("Server is actually listening (connect succeeds)", "[server][integrati
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -156,13 +156,13 @@ TEST_CASE("Server skips invalid port and continues running", "[server][config]")
     VirtualServer vs1;
     vs1.listen_host = "127.0.0.1";
     vs1.listen_port = 8080; // Valid port
-    cfg.servers.push_back(vs1);
+    cfg.push_back(vs1);
 
     // Invalid virtual server
     VirtualServer vs2;
     vs2.listen_host = "127.0.0.1";
     vs2.listen_port = -1; // Invalid port
-    cfg.servers.push_back(vs2);
+    cfg.push_back(vs2);
 
     Server s(cfg);
 
@@ -184,7 +184,7 @@ TEST_CASE("Server shuts down gracefully", "[server][shutdown]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());

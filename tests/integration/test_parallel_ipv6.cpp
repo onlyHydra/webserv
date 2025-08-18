@@ -17,7 +17,7 @@ TEST_CASE("Parallel clients: 16 requests in parallel", "[server][parallel]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
@@ -96,7 +96,7 @@ TEST_CASE("IPv6 (::1) optional request", "[server][ipv6][optional]")
 	VirtualServer vs;
 	vs.listen_host = "::1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]

@@ -17,7 +17,7 @@ TEST_CASE("Slowloris: partial headers then FIN => no response", "[server][slowlo
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
@@ -44,7 +44,7 @@ TEST_CASE("Headers fragmented into tiny writes => still responds", "[server][fra
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
@@ -77,7 +77,7 @@ TEST_CASE("MAX_INBUFFER overflow: >1MB without terminator => drop connection", "
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
@@ -109,7 +109,7 @@ TEST_CASE("Client closes right after complete headers => server handles send err
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
@@ -142,8 +142,8 @@ TEST_CASE("Bind conflict: 0.0.0.0:PORT and 127.0.0.1:PORT => start() throws", "[
 	VirtualServer b;
 	b.listen_host = "127.0.0.1";
 	b.listen_port = port;
-	cfg.servers.push_back(a);
-	cfg.servers.push_back(b);
+	cfg.push_back(a);
+	cfg.push_back(b);
 
 	Server s(cfg);
 	REQUIRE_THROWS_AS(s.start(), std::runtime_error);
