@@ -30,12 +30,12 @@ using namespace std;
  */
 enum HttpRequestState
 {
+	ERROR,
 	START,
 	HEADER,
 	NEWLINE,
 	BODY,
-	OVER,
-	ERROR
+	OVER
 };
 
 
@@ -197,7 +197,12 @@ class HttpRequest
 		bool	parse(const char* data, size_t n);
 
 		/**
-		 * @returns method, meaning the full Start line of the Request
+		 * @returns true if Headers are finished (State at BODY or OVER)
+		 */
+		bool	headersDone(void);
+
+		/**
+		 * @returns method, meaning the type of request
 		 */
 		string	getMethod(void) const;
 		
@@ -208,13 +213,12 @@ class HttpRequest
 		string	getUri(void) const;
 
 		/**
-		 * @returns path, part of the method
+		 * @returns path to file to access
 		 */
 		string	getPath(void) const;
 
 		/**
-		 * For Later
-		 * PLACEHOLDER
+		 * @returns Query, meaning additional information from the path
 		 */
 		string	getQuery(void) const;
 
@@ -229,7 +233,7 @@ class HttpRequest
 		size_t getBodyLength(void) const;
 
 		/**
-		 * @returns http version, part of the method
+		 * @returns http version(s)
 		 */
 		string	getHttpVer(void) const;
 
@@ -241,7 +245,7 @@ class HttpRequest
 		/**
 		 * @returns Headers from this response
 		 */
-		const Headers &	getHeaders(void) const;
+		const Headers &getHeaders(void) const;
 
 		/**
 		 * @returns Cookies from this response

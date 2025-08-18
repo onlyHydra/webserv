@@ -33,6 +33,16 @@ bool	isPathValid(const std::string &in)
 }
 
 /**
+ * Wether given Query is a valid one
+ * @returns true if it is
+ */
+bool	isQueryValid(const std::string &in)
+{
+	(void)in;
+	return (true);
+}
+
+/**
  * Wether given Http Version is a valid one
  * @returns true if it is
  */
@@ -109,13 +119,32 @@ int	HttpRequest::handleLineStart(const std::string &in)
 	this->method = in.substr(i, pos);
 	if (!isMethodValid(this->method))
 		return (ERR_HTTP_BAD_REQUEST);
+
 	i = ++pos;
-	pos = in.find(' ', i);
-	if (pos == (size_t)-1)
-		return (ERR_HTTP_BAD_REQUEST);
-	this->path = in.substr(i, pos - i);
-	if (!isPathValid(this->path))
-		return (ERR_HTTP_BAD_REQUEST);
+	pos = in.find('?', i);
+	if (pos != (size_t)-1)
+	{
+		this->path = in.substr(i, pos - i);
+		if (!isPathValid(this->path))
+			return (ERR_HTTP_BAD_REQUEST);
+		i = ++pos;
+		pos = in.find(' ', i);
+		if (pos == (size_t)-1)
+			return (ERR_HTTP_BAD_REQUEST);
+		this->query = in.substr(i, pos - i);
+		if (!isQueryValid(this->query))
+			return (ERR_HTTP_BAD_REQUEST);
+	}
+	else
+	{
+		pos = in.find(' ', i);
+		if (pos == (size_t)-1)
+			return (ERR_HTTP_BAD_REQUEST);
+		this->path = in.substr(i, pos - i);
+		if (!isPathValid(this->path))
+			return (ERR_HTTP_BAD_REQUEST);
+	}
+
 	i = ++pos;
 	pos = in.find("\r\n", i);
 	if (pos == (size_t)-1)
@@ -123,6 +152,7 @@ int	HttpRequest::handleLineStart(const std::string &in)
 	this->http_version = in.substr(i, pos - i);
 	if (!isHttpVerValid(this->http_version))
 		return (ERR_HTTP_BAD_REQUEST);
+
 	i = pos + 2;
 	if (in[i])
 		return (ERR_HTTP_BAD_REQUEST);
@@ -256,6 +286,13 @@ bool	HttpRequest::parse(const char* data, size_t n)
 		}
 	}
 	return (true);
+}
+
+bool	HttpRequest::headersDone(void)
+{
+	if (this->state == BODY || this->state == OVER)
+		return (true);
+	return (false);
 }
 
 string	HttpRequest::getMethod(void) const

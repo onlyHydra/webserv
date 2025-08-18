@@ -142,30 +142,77 @@ TEST_CASE("HTTP Request", "[https]")
 			HttpRequest x;
 			errno = 0;
 			REQUIRE(x.parse("PUT /path Https\r\n", 17) == true);
+			REQUIRE(x.getMethod() == "PUT");
+			REQUIRE(x.getPath() == "/path");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "Https");
+			REQUIRE(x.getState() == HEADER);
 			REQUIRE(errno == 0);
 		}
 		{
 			HttpRequest x;
 			errno = 0;
 			REQUIRE(x.parse("PATCH / HttpVersion\r\n", 21) == true);
+			REQUIRE(x.getMethod() == "PATCH");
+			REQUIRE(x.getPath() == "/");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "HttpVersion");
+			REQUIRE(x.getState() == HEADER);
 			REQUIRE(errno == 0);
 		}
 		{
 			HttpRequest x;
 			errno = 0;
-			REQUIRE(x.parse("GET /root/dir Google.com\r\n", 17) == true);
+			REQUIRE(x.parse("GET /root/dir Google.com\r\n", 26) == true);
+			REQUIRE(x.getMethod() == "GET");
+			REQUIRE(x.getPath() == "/root/dir");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "Google.com");
+			REQUIRE(x.getState() == HEADER);
 			REQUIRE(errno == 0);
 		}
 		{
 			HttpRequest x;
 			errno = 0;
-			REQUIRE(x.parse("DELETE /root/home Google.com\r\n", 17) == true);
+			REQUIRE(x.parse("DELETE /root/home Google.com\r\n", 30) == true);
+			REQUIRE(x.getMethod() == "DELETE");
+			REQUIRE(x.getPath() == "/root/home");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "Google.com");
+			REQUIRE(x.getState() == HEADER);
 			REQUIRE(errno == 0);
 		}
 		{
 			HttpRequest x;
 			errno = 0;
-			REQUIRE(x.parse("POST //|\\ Amazon.xxx\r\n", 17) == true);
+			REQUIRE(x.parse("POST //|\\ Amazon.xxx\r\n", 22) == true);
+			REQUIRE(x.getMethod() == "POST");
+			REQUIRE(x.getPath() == "//|\\");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "Amazon.xxx");
+			REQUIRE(x.getState() == HEADER);
+			REQUIRE(errno == 0);
+		}
+		{
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("POST /index.html HttpVersion/1.1\r\n", 34) == true);
+			REQUIRE(x.getMethod() == "POST");
+			REQUIRE(x.getPath() == "/index.html");
+			REQUIRE(x.getQuery() == "");
+			REQUIRE(x.getHttpVer() == "HttpVersion/1.1");
+			REQUIRE(x.getState() == HEADER);
+			REQUIRE(errno == 0);
+		}
+		{
+			HttpRequest x;
+			errno = 0;
+			REQUIRE(x.parse("POST /index.html?key=value HttpVersion/1.1\r\n", 44) == true);
+			REQUIRE(x.getMethod() == "POST");
+			REQUIRE(x.getPath() == "/index.html");
+			REQUIRE(x.getQuery() == "key=value");
+			REQUIRE(x.getHttpVer() == "HttpVersion/1.1");
+			REQUIRE(x.getState() == HEADER);
 			REQUIRE(errno == 0);
 		}
 	}
@@ -207,5 +254,4 @@ TEST_CASE("HTTP Request", "[https]")
 			REQUIRE(errno == 0);
 		}
 	}
-	// sorry, too tired for more tests :c
 }

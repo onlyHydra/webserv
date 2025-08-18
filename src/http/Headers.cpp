@@ -54,7 +54,6 @@ bool	Headers::mergeFrom(const Headers &src)
 void	Headers::erase(const std::string &key)
 {
 	this->byteSize -= (key.size() + get(key).size());
-	std::cout << "Removing " << (key.size() + get(key).size()) << " bytes, now " << this->byteSize << " bytes big" << std::endl;
 	this->map.erase(key);
 }
 
