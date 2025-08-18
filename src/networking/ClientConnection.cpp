@@ -6,6 +6,23 @@ date: 8/10/2025
 ------------------------------------------ */
 
 #include "ClientConnection.h"
+#include "Server.h"
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <cstring>
+
+static int get_local_port(int fd)
+{
+	struct sockaddr_storage ss = sockaddr_storage();
+	socklen_t sl = sizeof(ss);
+	if (::getsockname(fd, (struct sockaddr *)&ss, &sl) != 0)
+		return -1;
+	if (ss.ss_family == AF_INET)
+		return (int)ntohs(((sockaddr_in *)&ss)->sin_port);
+	if (ss.ss_family == AF_INET6)
+		return (int)ntohs(((sockaddr_in6 *)&ss)->sin6_port);
+	return -1;
+}
 
 void ClientConnection::changeState(State state)
 {
@@ -78,23 +95,43 @@ static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset)
  * @brief Called after onReadable() has appended bytes
  *
  */
-void ClientConnection::processIncoming()
+bool ClientConnection::processIncoming()
 {
 	if (this->state != READ_HEADERS)
-		return;
+		return false;
 
 	if (headersComplete(inBuffer, parseOffset))
 	{
+		// TODO: parse method/target/Host from inBuffer. For now, placeholders:
+
+		const int local_port = get_local_port(fd.get());
+		int vs_idx = -1;
+		if (server && local_port > 0)
+		{
+			vs_idx = server->resolveVirtualServerByPort(local_port, "localhost");
+		}
+		RouteDecision plan; // defaults HK_ERROR/500
+		if (server && vs_idx >= 0)
+		{
+			Router::makeDecisionForVS(server->getConfig(), vs_idx, "GET", "/", plan);
+		}
+		else
+		{
+			plan.kind = RouteDecision::HK_ERROR;
+			plan.status = 400;
+		}
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());
 		changeState(WRITE);
+		return true;
 	}
+	return false;
 }
 
 void ClientConnection::onReadable()
 {
 	readFromSocket();
-	processIncoming();
+	// processIncoming();
 }
 
 void ClientConnection::onWritable()
@@ -149,11 +186,15 @@ void ClientConnection::readFromSocket()
 			size_t toCopy = static_cast<size_t>(n);
 			toCopy = (toCopy > spaceLeft) ? spaceLeft : toCopy;
 			inBuffer.insert(inBuffer.end(), buffer, buffer + toCopy);
+			if (processIncoming())
+				return;
 			continue;
 		}
 
 		if (n == 0)
 		{
+			if (processIncoming())
+				return;
 			close();
 			return;
 		}

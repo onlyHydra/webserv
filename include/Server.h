@@ -17,9 +17,15 @@ Date: 8/10/2025
 #endif
 
 #include "Listener.h"
+#include "ClientConnection.h"
 #include <vector>
 #include <string>
+#include <poll.h>
 #include <map>
+
+
+
+
 
 /**
  * @class Server
@@ -60,7 +66,7 @@ class Server
 	private:
 		EventLoop loop;
 		ServerConfig &srvConfig;
-		 std::vector<Listener*> listeners;
+		std::vector<Listener*> listeners;
 		std::map<int, std::map<std::string, int> > host_map_by_port; // port -> (host -> vs_index)
 		std::map<int, int> default_vs_by_port;						 // port -> default vs_index
 
@@ -87,39 +93,6 @@ class Server
 		 * @note Prefers the first working address from getaddrinfo() results.
 		 */
 		int createListenSocketRaw(const std::string &host, int port, bool &out_is_ipv6);
-		
-		/**
-		 * @brief Sets a file descriptor to non-blocking mode.
-		 *
-		 * Configures the given file descriptor to perform non-blocking I/O operations
-		 * by setting the O_NONBLOCK flag using fcntl().
-		 *
-		 * @param fd The file descriptor to configure. Must be a valid open file descriptor.
-		 * 
-		 * @throws std::runtime_error If fcntl(F_GETFL) fails with errno details.
-		 * @throws std::runtime_error If fcntl(F_SETFL) fails with errno details.
-		 * 
-		 * @warning Does not validate that fd is a valid file descriptor.
-		 * @note Essential for event-driven I/O to prevent blocking operations.
-		 */
-		void setNonBlocking(int fd);
-		
-		/**
-		 * @brief Sets the close-on-exec flag for a file descriptor.
-		 *
-		 * Ensures the file descriptor is automatically closed when the process
-		 * executes another program (exec family functions). This prevents file
-		 * descriptor leakage to child processes.
-		 *
-		 * @param fd The file descriptor to configure. Must be a valid open file descriptor.
-		 * 
-		 * @throws std::runtime_error If fcntl(F_GETFD) fails with errno details.
-		 * @throws std::runtime_error If fcntl(F_SETFD) fails with errno details.
-		 * 
-		 * @warning Does not validate that fd is a valid file descriptor.
-		 * @note Critical for security to prevent fd leakage to CGI processes.
-		 */
-		void setCloseOnExec(int fd);
 		
 		/**
 		 * @brief Registers all active listeners with the event loop.
@@ -165,7 +138,7 @@ class Server
 		 *
 		 * Analyzes the server configuration to identify unique (host, port) pairs
 		 * and groups virtual servers by these pairs. This allows multiple virtual
-		 * servers to share the same listener when they use the same host:port combination.
+		 * servstders to share the same listener when they use the same host:port combination.
 		 *
 		 * @param unique_pairs Output vector populated with unique (host, port) pairs found in configuration.
 		 * @param vs_indices_by_pair Output map where keys are (host, port) pairs and values are vectors 
@@ -268,6 +241,44 @@ class Server
 		 */
 		void stop();
 
+		void run(int poll_timeout_ms);
+		/**
+		 * @brief Sets a file descriptor to non-blocking mode.
+		 *
+		 * Configures the given file descriptor to perform non-blocking I/O operations
+		 * by setting the O_NONBLOCK flag using fcntl().
+		 *
+		 * @param fd The file descriptor to configure. Must be a valid open file descriptor.
+		 * 
+		 * @throws std::runtime_error If fcntl(F_GETFL) fails with errno details.
+		 * @throws std::runtime_error If fcntl(F_SETFL) fails with errno details.
+		 * 
+		 * @warning Does not validate that fd is a valid file descriptor.
+		 * @note Essential for event-driven I/O to prevent blocking operations.
+		 */
+		void setNonBlocking(int fd);
+		
+		/**
+		 * @brief Sets the close-on-exec flag for a file descriptor.
+		 *
+		 * Ensures the file descriptor is automatically closed when the process
+		 * executes another program (exec family functions). This prevents file
+		 * descriptor leakage to child processes.
+		 *
+		 * @param fd The file descriptor to configure. Must be a valid open file descriptor.
+		 * 
+		 * @throws std::runtime_error If fcntl(F_GETFD) fails with errno details.
+		 * @throws std::runtime_error If fcntl(F_SETFD) fails with errno details.
+		 * 
+		 * @warning Does not validate that fd is a valid file descriptor.
+		 * @note Critical for security to prevent fd leakage to CGI processes.
+		 */
+		void setCloseOnExec(int fd);
+
+		int resolveVirtualServerByPort(int localPort, const std::string& hostHdr) const;
+
+		const ServerConfig&	getConfig()const;
+
 		#ifdef UNIT_TEST
 		public:
 			size_t listenerCount() const { return listeners.size(); }
@@ -275,6 +286,79 @@ class Server
 			int    listenerPortAt(size_t i) const { return (i < listeners.size() && listeners[i]) ? listeners[i]->getPort() : -1; }
 		#endif
 };
+
+class ClientHandler : public EventLoop::Handler {
+	public:
+		ClientHandler(EventLoop& loop, ClientConnection* c)
+		: eventLoop(loop), clientConnection(c) {}
+
+		virtual ~ClientHandler() { delete clientConnection; }
+
+		virtual void onEvent(int fd, short revents) {
+			// error/hangup → close
+			if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+				clientConnection->close();
+				eventLoop.removeFD(fd); // deletes this
+				return;
+			}
+			if (revents & POLLIN) {
+				clientConnection->onReadable();
+				if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
+				if (clientConnection->wantsWrite()) eventLoop.modFD(fd, POLLOUT);
+			}
+			if (revents & POLLOUT) {
+				clientConnection->onWritable();
+				if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
+				if (!clientConnection->wantsWrite()) eventLoop.modFD(fd, POLLIN);
+			}
+		}
+	private:
+		EventLoop& eventLoop;
+		ClientConnection* clientConnection; // owned
+};
+
+
+class AcceptorHandler : public EventLoop::Handler {
+	public:
+		AcceptorHandler(EventLoop& loop, Server& srv, Listener* L)
+		: eventLoop(loop), _srv(srv), listener(L) {}
+
+		virtual void onEvent(int fd, short revents) {
+			if (!listener || listener->getFD() != fd) return;
+
+			if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+				eventLoop.removeFD(fd); // stop accepting on this listener
+				return;
+			}
+
+			if (revents & POLLIN) {
+				for (;;) {
+					struct sockaddr_storage ss;
+					socklen_t sl = sizeof(ss);
+					int cfd = ::accept(fd, (struct sockaddr*)&ss, &sl);
+					if (cfd == -1) {
+						if (errno == EINTR) continue;
+						if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+						break; // other errors: give up this turn
+					}
+					// configure client
+					try { _srv.setNonBlocking(cfd); _srv.setCloseOnExec(cfd); }
+					catch (...) { ::close(cfd); continue; }
+
+					// register client handler
+					ClientConnection* c = new ClientConnection(cfd,&_srv);
+					eventLoop.addFD(cfd, POLLIN, new ClientHandler(eventLoop, c));
+				}
+			}
+		}
+	private:
+		EventLoop& eventLoop;
+		Server& _srv;
+		Listener* listener; // not owned
+};
+
+
+
 
 #endif // SERVER_H
 

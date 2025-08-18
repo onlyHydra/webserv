@@ -7,6 +7,7 @@ class VirtualServer
 {
 public:
 	int listen_port;
+	std::vector<Location> locations;
 	std::string listen_host;
 	std::vector<std::string> server_names;
 	VirtualServer();
