@@ -3,6 +3,8 @@
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
+#include <string>
+
 using namespace std;
 
 static Server *g_srv = 0;
@@ -17,14 +19,12 @@ static void on_sig(int)
 /** For now I get port from ARGV */
 int main(int argc, char** argv)
 {
-    int port = (argc > 1) ? std::atoi(argv[1]) : 8080;
+    const std::string &path = (argc > 1)? argv[1] : "config/default.conf";
 
     ServerConfig cfg;            // no argv-taking ctor anymore
-    VirtualServer vs;
-    vs.listen_host = "127.0.0.1";
-    vs.listen_port = port;
-    cfg.push_back(vs);
 
+
+	cfg.parseFile(path);
     Server server(cfg);
     // server.setPipeline(&pipeline);
 
