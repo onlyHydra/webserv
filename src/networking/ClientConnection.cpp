@@ -47,14 +47,14 @@ static std::string makeHelloResponse()
  */
 static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset , HttpRequest & request)
 {
-
+	(void)parseOffset;
 	if (!request.parse(buf.data(), buf.size()))
 		return (false);
 	if (request.getState() <= HEADER || request.getState() == ERROR)
 		return (false);
 	
 	const Headers &header = request.getHeaders();
-
+	(void)header;
 	return true;
 }
 
