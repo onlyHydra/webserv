@@ -67,7 +67,7 @@ class HttpRequest
 		string path;
 		string http_version;
 		string uri;
-		string query;
+		string query; // anytthing after ?= in the path
 		string session_id;
 		size_t	bodyLength;
 		Headers headers;
@@ -75,31 +75,7 @@ class HttpRequest
 		vector<char> body;
 		string buffer;
 		enum HttpRequestState state;
-	public:
-		HttpRequest();
-
-		~HttpRequest();
-
-		/**
-		 * @returns wether session is still alive
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		bool	keepAlive(void) const;
-
-		/**
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		bool	headerAsSize(string k, size_t &v) const;
-
-		/**
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		string	extension() const;
-
-		/**
+				/**
 		 * @name handleLineStart
 		 * @brief DONT USE DIRECTLY | Parses a given line as a valid Starting Line
 		 * @param in Line to be handled
@@ -170,6 +146,29 @@ class HttpRequest
 		 * If at Body Parsing, whole buffer will be handled
 		 */
 		int	handleInput(bool &activity);
+	public:
+		HttpRequest();
+
+		~HttpRequest();
+
+		/**
+		 * @returns wether session is still alive
+		 * For Later
+		 * PLACEHOLDER
+		 */
+		bool	keepAlive(void) const;
+
+		/**
+		 * For Later
+		 * PLACEHOLDER
+		 */
+		bool	headerAsSize(string k, size_t &v) const;
+
+		/**
+		 * For Later
+		 * PLACEHOLDER
+		 */
+		string	extension() const;
 
 		/**
 		 * @name parse

@@ -177,6 +177,27 @@ int	HttpRequest::handleLineHeader(const std::string &in)
 	return (0);
 }
 
+int	HttpRequest::handleLineHeader(const std::string &in)
+{
+	size_t	i = 0;
+	size_t	pos = 0;
+	int		contLength = 0;
+	bool	atoiError;
+	std::string key;
+	std::string value;
+
+	pos = in.find(':', i);
+	key = in.substr(i, pos);
+
+	pos = in.find("\r\n", i);
+	value = in.substr(i, pos - i);
+
+	this->headers.set(key, value);
+	if (key == "Content-Length")
+		this->bodyLength = Atoi::atoiHttpReq(value.c_str(), atoiError);
+	return (0);
+}
+
 int	HttpRequest::handleLineBody(const std::string &in)
 {
 	if (this->method != "POST" && this->method != "PUT" && this->method != "PATCH")
