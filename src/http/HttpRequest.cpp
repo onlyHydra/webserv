@@ -304,7 +304,7 @@ string	HttpRequest::getHttpVer(void) const
 string	HttpRequest::getBuffer(void) const
 { return (this->buffer); }
 
-Headers	HttpRequest::getHeaders(void) const
+const Headers&	HttpRequest::getHeaders(void) const
 { return (this->headers); }
 
 CookieJar HttpRequest::getCookies(void) const

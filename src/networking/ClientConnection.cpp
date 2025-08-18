@@ -6,6 +6,7 @@ date: 8/10/2025
 ------------------------------------------ */
 
 #include "ClientConnection.h"
+#include "HttpRequest.h"
 
 void ClientConnection::changeState(State state)
 {
@@ -44,33 +45,17 @@ static std::string makeHelloResponse()
  *  Just a placeholder until he have a proper Parser
  *  Look for \r\n\r\n using parseOffset to avoid rescanning.
  */
-static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset)
+static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset , HttpRequest & request)
 {
-	// Search from parseOffset up to possible end
-	const char *data = buf.data();
-	size_t n = buf.size();
 
-	// We need at least 4 bytes to match
-	if (n < 4)
-	{
-		parseOffset = (n > 3 ? n - 3 : 0);
-		return false;
-	}
+	if (!request.parse(buf.data(), buf.size()))
+		return (false);
+	if (request.getState() <= HEADER || request.getState() == ERROR)
+		return (false);
+	
+	const Headers &header = request.getHeaders();
 
-	// Ensure we don't miss a boundary across calls
-	size_t start = (parseOffset > 3 ? parseOffset - 3 : 0);
-	for (size_t i = start; i + 3 < n; ++i)
-	{
-		if (data[i] == '\r' && data[i + 1] == '\n' &&
-			data[i + 2] == '\r' && data[i + 3] == '\n')
-		{
-			parseOffset = i + 4;
-			return true;
-		}
-	}
-	// Keep last 3 bytes as overlap next scan
-	parseOffset = (n > 3 ? n - 3 : 0);
-	return false;
+	return true;
 }
 
 /**
@@ -82,8 +67,9 @@ bool ClientConnection::processIncoming()
 {
 	if (this->state != READ_HEADERS)
 		return false;
+	HttpRequest request;
 
-	if (headersComplete(inBuffer, parseOffset))
+	if (headersComplete(inBuffer, parseOffset, request))
 	{
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());

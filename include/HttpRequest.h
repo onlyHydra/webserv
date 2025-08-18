@@ -22,6 +22,11 @@ Date: 8/10/2025
 #  define ERR_HTTP_HEADER_LIMIT 431
 # endif
 
+// Populate the query field
+// Add getter for query
+// Add verifyign function for the headers
+
+
 using namespace std;
 
 /**
@@ -232,7 +237,7 @@ class HttpRequest
 		/**
 		 * @returns Headers from this response
 		 */
-		Headers	getHeaders(void) const;
+		const Headers &	getHeaders(void) const;
 
 		/**
 		 * @returns Cookies from this response
