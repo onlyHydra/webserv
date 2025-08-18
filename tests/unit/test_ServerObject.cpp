@@ -89,7 +89,7 @@ TEST_CASE("End-to-end: single request yields hello response", "[server][e2e]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -132,7 +132,7 @@ TEST_CASE("End-to-end: multiple sequential connections", "[server][e2e][seq]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -182,7 +182,7 @@ TEST_CASE("Startup: bind failure surfaces cleanly (EADDRINUSE)", "[server][start
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_THROWS_AS(s.start(), std::runtime_error);
@@ -198,7 +198,7 @@ TEST_CASE("Graceful shutdown closes listeners", "[server][shutdown]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -216,7 +216,7 @@ TEST_CASE("End-to-end: client half-closes after request", "[server][e2e]")
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
@@ -253,7 +253,7 @@ TEST_CASE("End-to-end: headers split across two TCP reads", "[server][e2e][split
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.servers.push_back(vs);
+	cfg.push_back(vs);
 
 	Server s(cfg);
 	REQUIRE_NOTHROW(s.start());
