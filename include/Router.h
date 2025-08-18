@@ -11,11 +11,11 @@ Date: 8/10/2025
 #include <string>
 
 class ServerConfig;
-class RouteResolver;
+class RouteDecision;
 class Router
 {
 public:
-	static void Router::makeDecisionForVS(const ServerConfig &cfg,
+	static void makeDecisionForVS(const ServerConfig &cfg,
 										  int vs_idx,
 										  const std::string &method,
 										  const std::string &uri,

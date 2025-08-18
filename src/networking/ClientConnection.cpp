@@ -7,6 +7,7 @@ date: 8/10/2025
 
 #include "ClientConnection.h"
 #include "HttpRequest.h"
+#include "Router.h"
 #include "Server.h"
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -104,7 +105,7 @@ bool ClientConnection::processIncoming()
 		else
 		{
 			plan.kind = RouteDecision::HK_ERROR;
-			plan.status = 400;
+			plan.status = 500;
 		}
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());

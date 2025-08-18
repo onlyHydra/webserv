@@ -9,6 +9,9 @@
 struct CgiSpec {
     std::string bin;
     int         timeout_ms;
+    CgiSpec() : bin(""), timeout_ms(0) {}
+    CgiSpec(const std::string& bin, int timeout_ms) : bin(bin), timeout_ms(timeout_ms) {}
+    CgiSpec(const CgiSpec& obj) : bin(obj.bin), timeout_ms(obj.timeout_ms) {}
 };
 
 struct RateLimitConfig {
@@ -62,7 +65,7 @@ struct Location {
     PutPatchConfig                  write_conf;
 
     Location();
-    ~Location();
+	~Location();
 };
 
 // ---------- VirtualServer ----------

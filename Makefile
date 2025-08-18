@@ -39,7 +39,7 @@ PCHFLAG := $(if $(wildcard $(PCH)),-include $(PCH),)
 
 # Flags
 CXXFLAGS_98 := -Wall -Wextra -Werror -std=c++98 -MMD -MP -g -pipe $(PCHFLAG)
-CXXFLAGS_14 := -std=c++14 -MMD -MP -pthread -pipe $(PCHFLAG)
+CXXFLAGS_14 := -std=c++14 -MMD -MP -pthread -pipe $(PCHFLAG) -g
 CFLAGS_C    := -Wall -Wextra -Werror -std=c99   -MMD -MP -g -pipe
 
 INCS      := -I$(INC_DIR)
