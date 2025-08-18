@@ -1,0 +1,197 @@
+Improved architecture (classes & relationships)
+mermaid
+Copy
+Edit
+classDiagram
+direction LR
+
+class Server {
+  -EventLoop loop
+  -const Config& cfg
+  +start()
+  +stop()
+}
+
+class EventLoop {
+  -vector<Listener> listeners
+  -map<int, ClientConnection*> conns
+  +run()
+  +addFD(fd, events)
+  +modFD(fd, events)
+  +removeFD(fd)
+}
+
+class Listener {
+  -int fd
+  -sockaddr addr
+  +accept() ClientConnection*
+}
+
+class ClientConnection {
+  <<stateful>>
+  -int fd
+  -enum State { RECV_HEADERS, RECV_BODY, ROUTE, RESPOND, CLOSED }
+  -Buffer inBuf
+  -Buffer outBuf
+  -time_t deadline
+  +onReadable()
+  +onWritable()
+  +close()
+}
+
+class RequestParser {
+  +feed(bytes) : void
+  +isHeadersComplete() : bool
+  +needsBody() : bool
+  +isComplete() : bool
+  +request() : HttpRequest
+  +reset() : void
+}
+
+class HttpRequest {
+  +method
+  +target
+  +version
+  +headers
+  +body
+}
+
+class HttpResponse {
+  +status
+  +headers
+  +body
+  +clear()
+}
+
+class Router {
+  +resolve(req:HttpRequest) : Handler*
+}
+
+class Handler {
+  <<interface>>
+  +handle(req:HttpRequest, res:HttpResponse, ctx:Location) : void
+}
+
+class StaticHandler {
+  +serveFile()
+  +autoindex()
+}
+
+class CgiHandler {
+  +runCgi()
+}
+
+class CgiProcess {
+  -pid
+  -int inFd
+  -int outFd
+  +spawn(interpreter, scriptPath, env)
+  +writeBody()
+  +readOutput()
+}
+
+class CgiRegistry {
+  +byExt(ext) : std::string
+}
+
+class Config {
+  +parseFile(path)
+  +servers() : vector<ServerBlock>
+}
+
+class ServerBlock {
+  +listens : vector<Listen>
+  +root    : string
+  +index   : vector<string>
+  +error_pages : map<int,string>
+  +client_max_body_size : size_t
+  +locations : vector<Location>
+}
+
+class Location {
+  +path : string
+  +root : string
+  +index : vector<string>
+  +autoindex : bool
+  +methods : set<string>  
+  +upload_store : string
+  +cgi : map<string,string> 
+  +redirect_code : int
+  +redirect_target : string
+}
+
+class Listen {
+  +host : string
+  +port : unsigned short
+}
+
+%% relationships
+Server --> EventLoop
+EventLoop "1" o-- "*" Listener
+EventLoop "1" o-- "*" ClientConnection
+ClientConnection --> RequestParser
+RequestParser --> HttpRequest
+ClientConnection --> HttpResponse
+ClientConnection --> Router
+Router <|.. Handler
+Handler <|-- StaticHandler
+Handler <|-- CgiHandler
+CgiHandler --> CgiProcess
+CgiHandler --> CgiRegistry
+Router --> Config
+Config --> ServerBlock
+ServerBlock --> Location
+ServerBlock --> Listen
+Request lifecycle (sequence)
+mermaid
+Copy
+Edit
+sequenceDiagram
+autonumber
+participant Client
+participant Loop as EventLoop
+participant Conn as ClientConnection
+participant Parser as RequestParser
+participant Router
+participant H as Handler
+participant CGI as CgiProcess
+
+Client->>Loop: connect()
+Loop->>Conn: accept() -> new fd
+loop poll()
+  Loop->>Conn: onReadable()
+  Conn->>Parser: feed(bytes)
+  Parser-->>Conn: headers/body complete?
+  alt request complete
+    Conn->>Router: resolve(req)
+    Router-->>H: pick StaticHandler | CgiHandler
+    alt StaticHandler
+      H-->>Conn: build HttpResponse (file/autoindex)
+    else CGI
+      H->>CGI: spawn + env + body
+      CGI-->>H: headers+body (EOF)
+      H-->>Conn: build HttpResponse
+    end
+    Conn->>Loop: want WRITE
+    Loop->>Conn: onWritable()
+    Conn-->>Client: send response
+    alt keep-alive
+      Conn->>Parser: reset(); state=RECV_HEADERS
+    else close
+      Conn->>Loop: remove FD; state=CLOSED
+    end
+  end
+end
+
+
+Why this is better for 42 webserv
+Focuses on required features only: GET/POST/DELETE, uploads, multi-ports, CGI, default error pages, single non-blocking loop.
+
+Adds an explicit connection state machine and deadlines (requests must not hang).
+
+Keeps parsing incremental (RequestParser separate from HttpRequest).
+
+Keeps CGI clean: a registry by extension, a process wrapper, and the handler that translates to/from HTTP.
+
+What we intentionally removed
+Reverse proxy, upstream pools, balancers, sessions/cookies management, rate limits, PUT/PATCH, ETag/CRC helpers. They’re cool, but out-of-scope and time sinks.

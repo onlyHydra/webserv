@@ -8,13 +8,16 @@ Date: 8/10/2025
 #ifndef SERVERCONFIG_H
 #define SERVERCONFIG_H
 
-class ServerConfig {
+#include "VirtualServer.h"
+#include <vector>
+class ServerConfig
+{
 public:
-    ServerConfig();
-    ~ServerConfig();
+	std::vector<VirtualServer> servers;
+	ServerConfig();
+	~ServerConfig();
 
 private:
-
 };
 
 #endif // SERVERCONFIG_H

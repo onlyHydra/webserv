@@ -68,12 +68,25 @@ jobs:
             const exclude = new Set([pr.user.login.toLowerCase(), assigneeLogin.toLowerCase()]);
             const reviewers = team.filter(u => !exclude.has(u.toLowerCase()));
             if (reviewers.length) {
-              try {
-                await github.rest.pulls.requestReviewers({
-                  ...repo, pull_number: pr.number, reviewers
-                });
-              } catch (e) {
-                core.warning(`Request reviewers failed: ${e.message}`);
+              // Fetch all reviews for this PR
+              const { data: reviews } = await github.rest.pulls.listReviews({
+                ...repo,
+                pull_number: pr.number
+              });
+              // Find users who have already approved
+              const approved = new Set(
+                reviews.filter(r => r.state === "APPROVED").map(r => r.user.login.toLowerCase())
+              );
+              // Only request review from those who have not approved yet
+              const toRequest = reviewers.filter(u => !approved.has(u.toLowerCase()));
+              if (toRequest.length) {
+                try {
+                  await github.rest.pulls.requestReviewers({
+                    ...repo, pull_number: pr.number, reviewers: toRequest
+                  });
+                } catch (e) {
+                  core.warning(`Request reviewers failed: ${e.message}`);
+                }
               }
             }
 

@@ -9,167 +9,30 @@ permissions:
   pull-requests: read
 
 jobs:
-  done-and-clean:
-    if: github.event.pull_request.merged == true && contains(fromJson('["main","development"]'), github.event.pull_request.base.ref)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GL_TOKEN || github.token }}
-          script: |
-                const pr = context.payload.pull_request;
-                const repo = context.repo;
 
-                const PROJECT_ID = 'PVT_kwHOBFQM7s4A_i9k';   // your project
-                const STATUS_FIELD_NAME = 'Status';
-                const DONE_OPTION_NAME  = 'Done';
-
-                // 1) Delete head branch (if not from fork)
-                if (!pr.head.repo.fork) {
-                try {
-                    await github.rest.git.deleteRef({ ...repo, ref: `heads/${pr.head.ref}` });
-                } catch (e) {
-                    core.warning(`Delete ref skipped: ${e.message}`);
-                }
-                }
-
-                // 2) Collect all referenced issue numbers from PR title/body
-                const text = (pr.title || '') + '\n' + (pr.body || '');
-                const issueNumbers = [...new Set((text.match(/#(\d+)/g) || []).map(s => +s.slice(1)))];
-                if (!issueNumbers.length) {
-                core.info('No referenced issues found; nothing to move.');
-                return;
-                }
-
-                // 3) Resolve the project, Status field, and Done option by name
-                const qFields = `
-                query($id:ID!){
-                    node(id:$id){
-                    ... on ProjectV2 {
-                        id
-                        fields(first:100){
-                        nodes{
-                            __typename
-                            ... on ProjectV2SingleSelectField {
-                            id
-                            name
-                            options { id name }
-                            }
-                        }
-                        }
-                    }
-                    }
-                }`;
-                const projData = await github.graphql(qFields, { id: PROJECT_ID });
-                const fields = projData.node.fields.nodes;
-                const statusField = fields.find(f => f && f.__typename === 'ProjectV2SingleSelectField' && f.name === STATUS_FIELD_NAME);
-                if (!statusField) throw new Error(`Field "${STATUS_FIELD_NAME}" not found in project`);
-                const doneOpt = statusField.options.find(o => o.name === DONE_OPTION_NAME);
-                if (!doneOpt) throw new Error(`Option "${DONE_OPTION_NAME}" not found in field "${STATUS_FIELD_NAME}"`);
-
-                // 4) Page through project items to map Issue.number -> itemId
-                async function loadItems(projectId) {
-                const items = [];
-                let after = null;
-                while (true) {
-                    const q = `
-                    query($id:ID!, $after:String){
-                        node(id:$id){
-                        ... on ProjectV2 {
-                            items(first:100, after:$after){
-                            nodes{
-                                id
-                                content { __typename ... on Issue { id number } ... on PullRequest { id number } }
-                            }
-                            pageInfo { hasNextPage endCursor }
-                            }
-                        }
-                        }
-                    }`;
-                    const r = await github.graphql(q, { id: projectId, after });
-                    const page = r.node.items;
-                    items.push(...page.nodes);
-                    if (!page.pageInfo.hasNextPage) break;
-                    after = page.pageInfo.endCursor;
-                }
-                return items;
-                }
-                const items = await loadItems(PROJECT_ID);
-
-                // Make a quick lookup by issue number
-                const itemByNumber = new Map();
-                for (const n of items) {
-                if (n.content && n.content.__typename === 'Issue' && typeof n.content.number === 'number') {
-                    itemByNumber.set(n.content.number, n.id);
-                }
-                }
-
-                // 5) For each referenced issue: move to Done, close, and comment
-                for (const num of issueNumbers) {
-                // Find or add the project item
-                let itemId = itemByNumber.get(num);
-                if (!itemId) {
-                    // Try to add the issue to the project if it exists in this repo
-                    try {
-                    const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
-                    const addRes = await github.graphql(`
-                        mutation($projectId:ID!, $contentId:ID!){
-                        addProjectV2ItemById(input:{ projectId:$projectId, contentId:$contentId }) {
-                            item { id }
-                        }
-                        }`, { projectId: PROJECT_ID, contentId: issue.node_id });
-                    itemId = addRes.addProjectV2ItemById.item.id;
-                    } catch (e) {
-                    core.warning(`Issue #${num} not found in this repository or cannot be added: ${e.message}`);
-                    continue;
-                    }
-                }
-
-                // Update Status -> Done
-                try {
-                    await github.graphql(`
-                    mutation($input: UpdateProjectV2ItemFieldValueInput!) {
-                        updateProjectV2ItemFieldValue(input:$input){ projectV2Item{ id } }
-                    }`, {
-                    input: {
-                        projectId: PROJECT_ID,
-                        itemId,
-                        fieldId: statusField.id,
-                        value: { singleSelectOptionId: doneOpt.id }
-                    }
-                    });
-                } catch (e) {
-                    core.warning(`Failed to set Status=Done for issue #${num}: ${e.message}`);
-                }
-
-                // Close the issue (optional but recommended if base is not default)
-                try {
-                    await github.rest.issues.update({ ...repo, issue_number: num, state: 'closed' });
-                } catch (e) {
-                    core.warning(`Close issue #${num} failed: ${e.message}`);
-                }
-
-                // Comment back
-                try {
-                    await github.rest.issues.createComment({
-                    ...repo,
-                    issue_number: num,
-                    body: `✅ Merged via PR #${pr.number} into \`${pr.base.ref}\`. Marked as **Done** and closed.`
-                    });
-                } catch (e) {
-                    core.warning(`Comment on #${num} failed: ${e.message}`);
-                }
-                }
-                // 6) Remove the item from the project
-                try {
-                await github.graphql(`
-                    mutation($projectId: ID!, $itemId: ID!) {
-                    deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
-                        deletedItemId
-                    }
-                    }
-                `, { projectId: PROJECT_ID, itemId });
-                core.info(`Removed issue #${num} from project.`);
-                } catch (e) {
-                core.warning(`Failed to remove issue #${num} from project: ${e.message}`);
-                }
+    done-and-clean:
+        if: github.event.pull_request.merged == true && contains(fromJson('["main","development"]'), github.event.pull_request.base.ref)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/github-script@v7
+              with:
+                    github-token: ${{ secrets.GL_TOKEN || github.token }}
+                    script: |
+                        const pr = context.payload.pull_request;
+                        const repo = context.repo;
+                                    // Only delete head branch (if not from fork)
+                                    if (!pr.head.repo.fork) {
+                                        try {
+                                            // Delete branch on GitHub (remote)
+                                            await github.rest.git.deleteRef({ ...repo, ref: `heads/${pr.head.ref}` });
+                                            // Also delete branch from local origin if runner has push access
+                                            const execSync = require('child_process').execSync;
+                                            try {
+                                                execSync(`git push origin --delete ${pr.head.ref}`, { stdio: 'inherit' });
+                                            } catch (e) {
+                                                core.warning(`Remote origin branch delete failed: ${e.message}`);
+                                            }
+                                        } catch (e) {
+                                            core.warning(`Delete ref skipped: ${e.message}`);
+                                        }
+                                    }

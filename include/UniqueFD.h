@@ -15,40 +15,40 @@ class UniqueFD
 
 	public:
 		explicit UniqueFD(int fd = -1)
-			: fd_(fd) {}
+			: fd(fd) {}
 
 		~UniqueFD()
 		{
-			if (fd_ != -1)
+			if (fd != -1)
 			{
-				::close(fd_);
+				::close(fd);
 			}
 		}
 
 	private:
-		int fd_;
+		int fd;
 		UniqueFD(const UniqueFD &);
 		UniqueFD &operator=(const UniqueFD &);
 
 	public:
-		int get() const { return fd_; }
+		int get() const { return fd; }
 
-		operator bool() const { return fd_ != -1; }
+		operator bool() const { return fd != -1; }
 
 		int release()
 		{
-			int temp = fd_;
-			fd_ = -1;
+			int temp = fd;
+			fd = -1;
 			return temp;
 		}
 
 		void reset(int newFd = -1)
 		{
-			if (fd_ != -1)
+			if (fd != -1)
 			{
-				::close(fd_);
+				::close(fd);
 			}
-			fd_ = newFd;
+			fd = newFd;
 		}
 };
 

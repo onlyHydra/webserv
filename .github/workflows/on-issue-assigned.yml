@@ -54,7 +54,7 @@ jobs:
                 `🚀 Branch created: [\`${branchName}\`](${branchUrl})\n\n` +
                 "To check out this branch locally:\n" +
                 "```bash\n" +
-                `git fetch && git checkout ${branchName}\n` +
+                `git fetch --prune && git checkout ${branchName}\n` +
                 "```"
             });
 

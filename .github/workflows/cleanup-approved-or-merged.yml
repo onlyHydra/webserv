@@ -22,7 +22,7 @@ jobs:
             const repo = context.repo;
 
             // --- CONFIG ---
-            const ORG = 'YOUR_ORG_OR_USER';
+            const ORG = 'onlyHydra';
             const PROJECT_NUMBER = 1;
             const STATUS_FIELD_NAME = 'Status';
             const DONE_OPTION_NAME  = 'Done';

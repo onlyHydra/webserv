@@ -23,16 +23,6 @@ void ClientConnection::close()
 	this->state = CLOSE;
 }
 
-static inline void appendString(std::vector<char> &v, const char *s, size_t n)
-{
-	v.insert(v.end(), s, s + n);
-}
-
-static inline void appendString(std::vector<char> &v, const std::string &s)
-{
-	appendString(v, s.data(), s.size());
-}
-
 /**
  * @brief PLEASE DELETE ME I AM A PLACEHOLDER
  */
@@ -88,23 +78,25 @@ static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset)
  * @brief Called after onReadable() has appended bytes
  *
  */
-void ClientConnection::processIncoming()
+bool ClientConnection::processIncoming()
 {
 	if (this->state != READ_HEADERS)
-		return;
+		return false;
 
 	if (headersComplete(inBuffer, parseOffset))
 	{
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());
 		changeState(WRITE);
+		return true;
 	}
+	return false;
 }
 
 void ClientConnection::onReadable()
 {
 	readFromSocket();
-	processIncoming();
+	// processIncoming();
 }
 
 void ClientConnection::onWritable()
@@ -159,11 +151,15 @@ void ClientConnection::readFromSocket()
 			size_t toCopy = static_cast<size_t>(n);
 			toCopy = (toCopy > spaceLeft) ? spaceLeft : toCopy;
 			inBuffer.insert(inBuffer.end(), buffer, buffer + toCopy);
+			if (processIncoming())
+				return;
 			continue;
 		}
 
 		if (n == 0)
 		{
+			if(processIncoming())
+				return;
 			close();
 			return;
 		}

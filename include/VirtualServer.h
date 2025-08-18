@@ -1,20 +1,18 @@
-/* --- VirtualServer.h --- */
-
-/* ------------------------------------------
-Author: undefined
-Date: 8/10/2025
------------------------------------------- */
-
 #ifndef VIRTUALSERVER_H
 #define VIRTUALSERVER_H
 
-class VirtualServer {
+#include <string>
+#include <vector>
+class VirtualServer
+{
 public:
-    VirtualServer();
-    ~VirtualServer();
+	int listen_port;
+	std::string listen_host;
+	std::vector<std::string> server_names;
+	VirtualServer();
+	~VirtualServer();
 
 private:
-
 };
 
 #endif // VIRTUALSERVER_H
