@@ -8,13 +8,40 @@ Date: 8/10/2025
 #ifndef HTTPRESPONSE_H
 #define HTTPRESPONSE_H
 
-class HttpResponse {
-public:
-    HttpResponse();
-    ~HttpResponse();
+# include <string>
+# include <vector>
+# include <errno.h>
+# include "Headers.h"
+# include "CookieJar.h"
 
-private:
+using namespace std;
 
+/**
+ * @brief Class that represents a full Http Request
+ * ---------------------------------------------------
+ */
+class HttpResponse
+{
+	public:
+		string http_version;
+		string session_id;
+		size_t	bodyLength;
+		Headers headers;
+		CookieJar cookies;
+		vector<char> body;
+
+		HttpResponse();
+		~HttpResponse();
 };
+
+/**
+ * DANGER
+ * PLACEHOLDER
+ * USES THE ostream.write external function
+ * which isnt allowed
+ * DELETE LATER
+ * ...or keep it for debugging
+ */
+std::ostream &operator<<(std::ostream &out, const HttpResponse &target);
 
 #endif // HTTPRESPONSE_H

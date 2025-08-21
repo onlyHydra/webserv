@@ -38,24 +38,6 @@ enum HttpRequestState
 	OVER
 };
 
-// totalBytesRead = ParseOffset when no data was removed from caller buffer
-// totalBytesHandled = Amount of bytes that should be removed from caller buffer
-// totalBytesRead - totalBytesHandled = ParseOffset, when data is always removed appropriately
-// bytesHandledLast = Amount of bytes that can be removed from the caller buffer
-
-// 0. Add stuff to buffer
-
-// 1. Get ParseOffset
-// If you didnt remove data
-// -> totalBytesRead
-// if you removed the data from the caller buffer ASAP
-// -> totalBytesRead - totalBytesHandled
-
-// 2. Call parse() with &(data[parseOffset]) and data.size() - parseOffset
-
-// 2. (optional) free buffer as much as possible:
-// -> free first request.getBytesHandledLast bytes from the caller buffer
-
 /**
  * @brief Class that represents a full Http Request
  * ---------------------------------------------------
