@@ -254,4 +254,47 @@ TEST_CASE("HTTP Request", "[https]")
 			REQUIRE(errno == 0);
 		}
 	}
+	SECTION("Multi-call parsing")
+	{
+		// Testing Headers
+		{
+			HttpRequest x;
+			std::string buffer = "";
+			const char	*newData;
+			size_t	newLength = 0;
+			size_t	parseOffset = 0;
+			errno = 0;
+
+			buffer += "PUT /path ";
+			parseOffset = x.getTotalBytesRead() - x.getTotalBytesHandled();
+			newData = &((buffer.c_str())[parseOffset]);
+			newLength = buffer.size() - parseOffset;
+			REQUIRE(x.parse(newData, newLength) == true);
+			REQUIRE(x.getTotalBytesRead() == buffer.size());
+			REQUIRE(x.getBytesHandledLast() == 0);
+			REQUIRE(x.getTotalBytesHandled() == 0);
+
+			buffer += "HttpVersion/1.1\r\nkey:";
+			parseOffset = x.getTotalBytesRead() - x.getTotalBytesHandled();
+			newData = &((buffer.c_str())[parseOffset]);
+			newLength = buffer.size() - parseOffset;
+			REQUIRE(x.parse(newData, newLength) == true);
+			REQUIRE(x.getTotalBytesRead() == 31);
+			REQUIRE(x.getBytesHandledLast() == 27);
+			REQUIRE(x.getTotalBytesHandled() == 27);
+			
+			buffer = buffer.substr(x.getBytesHandledLast());
+			// Buffer is now only the rest that wasnt handled (key:)
+
+			buffer += "value\r\n\r\n";
+			parseOffset = x.getTotalBytesRead() - x.getTotalBytesHandled();
+			newData = &((buffer.c_str())[parseOffset]);
+			newLength = buffer.size() - parseOffset;
+			REQUIRE(x.parse(newData, newLength) == true);
+			REQUIRE(x.getTotalBytesRead() == 40);
+			REQUIRE(x.getBytesHandledLast() == 13);
+			REQUIRE(x.getState() == BODY);
+			REQUIRE(errno == 0);
+		}
+	}
 }

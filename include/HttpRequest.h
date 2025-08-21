@@ -38,6 +38,23 @@ enum HttpRequestState
 	OVER
 };
 
+// totalBytesRead = ParseOffset when no data was removed from caller buffer
+// totalBytesHandled = Amount of bytes that should be removed from caller buffer
+// totalBytesRead - totalBytesHandled = ParseOffset, when data is always removed appropriately
+// bytesHandledLast = Amount of bytes that can be removed from the caller buffer
+
+// 0. Add stuff to buffer
+
+// 1. Get ParseOffset
+// If you didnt remove data
+// -> totalBytesRead
+// if you removed the data from the caller buffer ASAP
+// -> totalBytesRead - totalBytesHandled
+
+// 2. Call parse() with &(data[parseOffset]) and data.size() - parseOffset
+
+// 2. (optional) free buffer as much as possible:
+// -> free first request.getBytesHandledLast bytes from the caller buffer
 
 /**
  * @brief Class that represents a full Http Request
@@ -53,9 +70,22 @@ enum HttpRequestState
  * Use the parse() member function to feed it input to parse
  * Use getState to see in which state the Request is (see HttpRequestState)
  * Use the getter functions to get the fields set by the parser
- * DO NOT USE:
- * handleLineStart(), handleLineHeader(), handleLineBody(), handleLine() and handleInput()
- * They are extensions of the form function, and should only get highly specific input
+ * ---------------------------------------------------
+ * For the parsing, choose to either ALWAYS remove handled data from buffer
+ * or not at all, then use the parsing like this:
+ * 1)	Add new content to your callers buffer
+ * 2)	Calculate the parseOffset with:
+ * 			If you dont free handled data from your callers buffer
+ * 				parseOffset = totalBytesRead
+ * 			else if you ALWAYS free handled data from your callers buffer
+ * 				parseOffset = totalBytesRead - totalBytesHandled
+ * 3)	Give your buffer indexed with parseOffset and the size of the rest into parse()
+ * 			parse(&(buffer[parseOffset]), buffer.size() - parseOffset)
+ * 4)	If return is false 
+ * 			Error out in case parse returns false (will also set errno)
+ * 		else if return is true
+ * 			Remove handled data from your caller buffer, or not
+ * 			buffer = buffer.substr(x.getBytesHandledLast());
  * ---------------------------------------------------
  * Sets errno to ERR_HTTP_BAD_REQUEST on bad input
  * Sets errno to ERR_HTTP_HEADER_LIMIT when too many Header fields are given
@@ -77,6 +107,9 @@ class HttpRequest
 		CookieJar cookies;
 		vector<char> body;
 		string buffer;
+		size_t	totalBytesRead;
+		size_t	totalBytesHandled;
+		size_t	bytesHandledLast;
 		enum HttpRequestState state;
 
 		/**
@@ -261,6 +294,23 @@ class HttpRequest
 		 * @returns State of the Http Request
 		 */
 		enum HttpRequestState getState(void) const;
+
+		/**
+		 * @returns Amount of bytes this response has read so far
+		 */
+		size_t getTotalBytesRead(void) const;
+
+		/**
+		 * @returns Amount of bytes that were handled in total from this Request
+		 * (meaning the amount of bytes you could free in total from your buffer)
+		 */
+		size_t getTotalBytesHandled(void) const;
+
+		/**
+		 * @returns Amount of bytes that was "handled" in the last parse() call
+		 * @returns this represents the amount of bytes that can safely be removed from the calling buffer
+		 */
+		size_t getBytesHandledLast(void) const;
 };
 
 /**

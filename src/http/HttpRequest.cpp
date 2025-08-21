@@ -85,6 +85,9 @@ HttpRequest::HttpRequest()
 	this->bodyLength = 0;
 	this->buffer = "";
 	this->state = START;
+	this->totalBytesRead = 0;
+	this->totalBytesHandled = 0;
+	this->bytesHandledLast = 0;
 }
 
 HttpRequest::~HttpRequest()
@@ -226,6 +229,7 @@ int	HttpRequest::handleLineBody(const std::string &in)
 
 int	HttpRequest::handleLine(const std::string &in)
 {
+	this->bytesHandledLast += in.size();
 	if (this->state == OVER || this->state == ERROR)
 		return (ERR_HTTP_BAD_REQUEST);
 	if (this->state == START)
@@ -270,21 +274,27 @@ int	HttpRequest::handleInput(bool &activity)
 bool	HttpRequest::parse(const char* data, size_t n)
 {
 	bool activity = true;
+	this->bytesHandledLast = 0;
 	int status = 0;
+	std::string newInput;
 
 	if (this->state == ERROR || this->state == OVER || n < 1)
 		return (false);
-	this->buffer += string(data, n);
+	newInput = string(data, n);
+	this->buffer += newInput;
+	this->totalBytesRead += newInput.size();
 	while (!status && activity)
 	{
 		status = this->handleInput(activity);
 		if (status)
 		{
+			this->bytesHandledLast = 0;
 			this->state = ERROR;
 			errno = status;
 			return (false);
 		}
 	}
+	this->totalBytesHandled += this->bytesHandledLast;
 	return (true);
 }
 
@@ -330,6 +340,15 @@ vector<char> HttpRequest::getBody(void) const
 
 enum HttpRequestState HttpRequest::getState(void) const
 { return (this->state); }
+
+size_t HttpRequest::getTotalBytesRead(void) const
+{ return (this->totalBytesRead); }
+
+size_t HttpRequest::getTotalBytesHandled(void) const
+{ return (this->totalBytesHandled); }
+
+size_t HttpRequest::getBytesHandledLast(void) const
+{ return (this->bytesHandledLast); }
 
 std::ostream &operator<<(std::ostream &out, const HttpRequest &target)
 {
