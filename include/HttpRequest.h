@@ -278,7 +278,7 @@ class HttpRequest
 		enum HttpRequestState getState(void) const;
 
 		/**
-		 * @returns Amount of bytes this response has read so far
+		 * @returns Amount of bytes this request has read so far
 		 */
 		size_t getTotalBytesRead(void) const;
 

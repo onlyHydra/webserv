@@ -17,7 +17,7 @@ Date: 8/10/2025
 using namespace std;
 
 /**
- * @brief Class that represents a full Http Request
+ * @brief Class that represents a full Http Response
  * ---------------------------------------------------
  */
 class HttpResponse
