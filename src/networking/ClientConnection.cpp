@@ -14,6 +14,7 @@ date: 8/10/2025
 #include <sys/socket.h>
 #include <cstring>
 #include "HEADER_ENTRIES.h"
+#include <sys/time.h>
 
 static int get_local_port(int fd)
 {
@@ -27,6 +28,23 @@ static int get_local_port(int fd)
 		return (int)ntohs(((sockaddr_in6 *)&ss)->sin6_port);
 	return -1;
 }
+
+
+
+u_int64_t ClientConnection::nowMs() {
+    struct timeval tv; gettimeofday(&tv, 0);
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
+}
+
+void ClientConnection::onTick() {
+    // If the current phase has expired, close the connection
+    if(state == CLOSE || !fd)
+		return;
+	if (expired()) {
+        close();
+    }
+}
+
 
 void ClientConnection::changeState(State state)
 {
@@ -86,7 +104,7 @@ static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset, H
 		return (false);
 	if (request.getState() <= HEADER || request.getState() == ERROR)
 		return (false);
-
+	// changeState(READ_BODY);
 	if(request.getHeaders().keyExists(HDR_CONNECTION))
 	{	if( request.keepAlive() || request.getHeaders().get(HDR_CONNECTION) == "keep-alive")
 			request.setKeepAlive(true);
@@ -132,7 +150,10 @@ bool ClientConnection::processIncoming()
 		}
 		std::string resp = makeHelloResponse();
 		outBuffer.assign(resp.begin(), resp.end());
+		if (!readPaused && outBuffer.size() >= HIGH_WATER)
+    		readPaused = true;
 		changeState(WRITE);
+		resetDeadlineForWrite();
 		return true;
 		// else
 		// {
@@ -165,7 +186,12 @@ void ClientConnection::onWritable()
 		ssize_t n = ::send(fd.get(), p, left, MSG_NOSIGNAL);
 		if (n > 0)
 		{
+
 			outOffset += static_cast<size_t>(n);
+			bumpDeadline(HDR_TIMEOUT_MS); 
+			size_t remaining = total - outOffset;
+			if (readPaused && remaining <= LOW_WATER)
+				readPaused = false;
 			continue;
 		}
 		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
@@ -176,12 +202,14 @@ void ClientConnection::onWritable()
 	}
 
 	// All bytes sent
-	close();
+	// close();
+	deadline_ms = nowMs() + POST_WRITE_LINGER_MS; 
+	return;
 }
 
 void ClientConnection::readFromSocket()
 {
-	if (state != READ_HEADERS || !fd)
+	if (this->state != READ_HEADERS  || !fd)
 		return;
 
 	while (true)
@@ -201,6 +229,7 @@ void ClientConnection::readFromSocket()
 			size_t toCopy = static_cast<size_t>(n);
 			toCopy = (toCopy > spaceLeft) ? spaceLeft : toCopy;
 			inBuffer.insert(inBuffer.end(), buffer, buffer + toCopy);
+			bumpDeadline(HDR_TIMEOUT_MS); 
 			if (processIncoming())
 				return;
 			continue;

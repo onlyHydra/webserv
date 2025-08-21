@@ -66,6 +66,7 @@ void Server::closeAll()
 	for (std::vector<Listener *>::iterator it = listeners.begin();
 		 it != listeners.end(); ++it)
 	{
+
 		delete *it; 
 	}
 	listeners.clear();
@@ -92,7 +93,7 @@ void Server::setCloseOnExec(int fd)
 void Server::stop()
 {
 	unregisterListeners();
-	closeAll();
+	loop.stop();
 }
 
 void Server::buildListenerPlan(std::vector<std::pair<std::string, int> > &unique_pairs,

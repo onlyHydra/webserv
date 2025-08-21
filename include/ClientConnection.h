@@ -19,12 +19,15 @@ Date: 8/10/2025
 #include "UniqueFD.h"
 #include "Router.h"
 #include "RouteResolver.h"
+// #include "HttpResponse.h"
+// #include "HttpRequest.h"
 
 class Server;
 
 enum State
 {
 	READ_HEADERS,
+	READ_BODY,
 	WRITE,
 	CLOSE,
 };
@@ -66,6 +69,8 @@ enum State
  *
  * @warning After calling close(), the ClientConnection should be destroyed/removed.
  */
+
+
 class ClientConnection
 {
 	private:
@@ -92,45 +97,39 @@ class ClientConnection
 		 * - Respects remaining buffer space to avoid overflow
 		 */
 
-
-		// ---- I/O limits ----
+		 // ---- I/O limits ----
     	static const size_t READ_CHUNK   = 8192;
     	// Protect against slowloris / memory blowups:
     	static const size_t MAX_INBUFFER = (1u << 20); // 1 MiB
 
 		// ---- timeouts (milliseconds) ----
 		// You can tweak these without touching code elsewhere.
-		static const int HDR_TIMEOUT_MS   = 10000; // headers read deadline
-		static const int BODY_TIMEOUT_MS  = 20000; // (reserved for future body reads)
-		static const int WRITE_TIMEOUT_MS = 10000; // response flush deadline
 
-		// ---- backpressure watermarks (bytes) ----
-		static const size_t HIGH_WATER = 256u * 1024u; // pause reads if above
-		static const size_t LOW_WATER  =  64u * 1024u; // resume reads if below
 
 		// ---- timing / backpressure bookkeeping ----
 		// Use unsigned long long to stay C++98-friendly.
 		unsigned long long deadline_ms; // absolute deadline for current phase
 		bool               readPaused;  // if true, we should not register POLLIN
 
-		// ---- helpers (implemented in .cpp) ----
-		// static unsigned long long nowMs();
 
-		// inline void resetDeadlineForHeaders() { 
-		// 	deadline_ms = nowMs() + (unsigned long long)HDR_TIMEOUT_MS;
-		// }
-		// inline void resetDeadlineForBody()    { 
-		// 	deadline_ms = nowMs() + (unsigned long long)BODY_TIMEOUT_MS; 
-		// }
-		// inline void resetDeadlineForWrite()   { 
-		// 	deadline_ms = nowMs() + (unsigned long long)WRITE_TIMEOUT_MS;
-		// }
-		// inline void bumpDeadline(int ms)      { 
-		// 	deadline_ms = nowMs() + (unsigned long long)ms;
-		// }
-		// inline bool expired() const           { 
-		// 	return nowMs() > deadline_ms;
-		// }
+		// ---- helpers (implemented in .cpp) ----
+		 static u_int64_t nowMs();
+
+		inline void resetDeadlineForHeaders() { 
+			deadline_ms = nowMs() + (unsigned long long)HDR_TIMEOUT_MS;
+		}
+		inline void resetDeadlineForBody()    { 
+			deadline_ms = nowMs() + (unsigned long long)BODY_TIMEOUT_MS; 
+		}
+		inline void resetDeadlineForWrite()   { 
+			deadline_ms = nowMs() + (unsigned long long)WRITE_TIMEOUT_MS;
+		}
+		inline void bumpDeadline(int ms)      { 
+			deadline_ms = nowMs() + (unsigned long long)ms;
+		}
+		inline bool expired() const           { 
+			return nowMs() > deadline_ms;
+		}
 
 
 		void readFromSocket();
@@ -152,15 +151,41 @@ class ClientConnection
 		*/
 		bool processIncoming();
 		
+		// bool headersComplete(const std::vector<char> &buf, size_t &parseOffset, HttpRequest &request);
 
 	public:
+
+		static const int HDR_TIMEOUT_MS   = 10000; // headers read deadline
+		static const int BODY_TIMEOUT_MS  = 20000; // (reserved for future body reads)
+		static const int WRITE_TIMEOUT_MS = 10000; // response flush deadline
+		// near your other timeouts
+		static const unsigned POST_WRITE_LINGER_MS = 100; // close very soon after flush
+
+
+		// ---- backpressure watermarks (bytes) ----
+		static const size_t HIGH_WATER = 256u * 1024u; // pause reads if above
+		static const size_t LOW_WATER  =  64u * 1024u; // resume reads if below
+
 		explicit ClientConnection(int fd) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0) {
-			// resetDeadlineForHeaders();
+			resetDeadlineForHeaders();
 		}		
 		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0), server(srv) {
-			// resetDeadlineForHeaders();
+			resetDeadlineForHeaders();
 		}
 		~ClientConnection() {};
+
+		bool wantsRead() const {
+			return state == READ_HEADERS && !isReadPaused();/*|| state == RECV_BODY*/;
+		}
+		bool hasPendingWrite() const {
+			return outOffset < outBuffer.size();
+		}
+		bool isReadPaused() const {
+			return readPaused;
+		}
+		void setReadPaused(bool v) {
+			readPaused = v;
+		}
 		/**
 		 * @brief Retrieves the current state of the client connection.
 		 *
@@ -212,11 +237,14 @@ class ClientConnection
 		 *          calling this method, as indicated by the implementation comment.
 		 */
 		
+		void onTick();
+
+
 		int  getFD() const { 
 			return fd.get();
 		}
 		bool isClosed() const { 
-			return !fd;
+			return !fd; 
 		}
 		bool wantsWrite() const {
 			return state == WRITE;

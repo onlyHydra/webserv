@@ -312,6 +312,14 @@ class ClientHandler : public EventLoop::Handler {
 				if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
 				if (!clientConnection->wantsWrite()) eventLoop.modFD(fd, POLLIN);
 			}
+			short want = 0;
+			if (clientConnection->wantsRead() && !clientConnection->isReadPaused()) want |= POLLIN;
+			if (clientConnection->hasPendingWrite())                    want |= POLLOUT;
+
+			// Don’t accidentally add POLLIN while in WRITE.
+			if (want == 0 && clientConnection->wantsRead())             want = POLLIN;
+
+			eventLoop.modFD(fd, want);
 		}
 	private:
 		EventLoop& eventLoop;
