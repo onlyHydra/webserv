@@ -27,6 +27,7 @@ static bool feedChunks(ClientConnection &conn, const std::vector<std::string> &c
 		conn.getInBuffer().insert(conn.getInBuffer().end(), buf.begin(), buf.end());
 		if (conn.processIncoming("ok"))
 			return true;
+		conn.getInBuffer().erase(conn.getInBuffer().begin(), conn.getInBuffer().end());
 	}
 	return false;
 }

@@ -97,13 +97,17 @@ static std::string makeErrorResponse()
  *  Just a placeholder until he have a proper Parser
  *  Look for \r\n\r\n using parseOffset to avoid rescanning.
  */
-static bool headersComplete(const std::vector<char> &buf, size_t &parseOffset, HttpRequest &request)
+static bool headersComplete(const std::vector<char> &buf, HttpRequest &request)
 {
-	(void)parseOffset;
 	if (!request.parse(buf.data(), buf.size()))
+
 		return (false);
+
 	if (request.getState() <= HEADER || request.getState() == ERROR)
+	{
+
 		return (false);
+	}
 	// changeState(READ_BODY);
 	if(request.getHeaders().keyExists(HDR_CONNECTION))
 	{	if( request.keepAlive() || request.getHeaders().get(HDR_CONNECTION) == "keep-alive")
@@ -123,9 +127,8 @@ bool ClientConnection::processIncoming()
 {
 	if (this->state != READ_HEADERS)
 		return false;
-	HttpRequest req;
 
-	if (headersComplete(inBuffer, parseOffset, req))
+	if (headersComplete(inBuffer, req))
 	{
 		// TODO: parse method/target/Host from inBuffer. For now, placeholders:
 
@@ -138,7 +141,6 @@ bool ClientConnection::processIncoming()
 		// RouteDecision plan; // defaults HK_ERROR/500
 		if (server && vs_idx >= 0)
 		{
-			HttpResponse res;
 			// Router::makeDecisionForVS(server->getConfig(), vs_idx, "GET", "/", plan);
 			if (!server->getPipeline()->processRequest(server->getConfig(), vs_idx, req, res))
 			{
@@ -159,11 +161,6 @@ bool ClientConnection::processIncoming()
 		changeState(WRITE);
 		resetDeadlineForWrite();
 		return true;
-		// else
-		// {
-		// 	plan.kind = RouteDecision::HK_ERROR;
-		// 	plan.status = 500;
-		// }
 	}
 	return false;
 }
@@ -238,15 +235,15 @@ void ClientConnection::readFromSocket()
 
 	while (true)
 	{
-		if (inBuffer.size() >= MAX_INBUFFER)
+
+		if (req.getTotalBytesRead() >= MAX_INBUFFER)
 		{
 			close();
 			return;
 		}
-
 		char buffer[READ_CHUNK];
 		ssize_t n = ::recv(fd.get(), buffer, sizeof(buffer), 0);
-
+		buffer[n] = '\0';
 		if (n > 0)
 		{
 			size_t spaceLeft = MAX_INBUFFER - inBuffer.size();
@@ -256,6 +253,7 @@ void ClientConnection::readFromSocket()
 			bumpDeadline(HDR_TIMEOUT_MS); 
 			if (processIncoming())
 				return;
+			inBuffer.clear();
 			continue;
 		}
 
@@ -263,6 +261,7 @@ void ClientConnection::readFromSocket()
 		{
 			if (processIncoming())
 				return;
+			inBuffer.clear();
 			close();
 			return;
 		}

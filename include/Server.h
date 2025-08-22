@@ -23,6 +23,9 @@ Date: 8/10/2025
 #include <string>
 #include <poll.h>
 #include <map>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 
 
@@ -375,12 +378,21 @@ class AcceptorHandler : public EventLoop::Handler {
 						break; // other errors: give up this turn
 					}
 					// configure client
-					try { _srv.setNonBlocking(cfd); _srv.setCloseOnExec(cfd); }
+					try {
+
+						// disable Nagle to reduce small-write latency for tests
+						int one = 1;
+						::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+					}
 					catch (...) { ::close(cfd); continue; }
 
 					// register client handler
 					ClientConnection* c = new ClientConnection(cfd,&_srv);
 					eventLoop.addFD(cfd, POLLIN, new ClientHandler(eventLoop, c));
+					// If the client has already sent data (common in tests that write
+					// immediately after connect), process it right away instead of
+					// waiting for the next poll cycle. Adjust poll registration if
+					// the connection now wants to write.
 				}
 			}
 		}

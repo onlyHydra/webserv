@@ -19,11 +19,8 @@ Date: 8/10/2025
 #include "UniqueFD.h"
 #include "Router.h"
 #include "RouteResolver.h"
-// #include "HttpResponse.h"
-// #include "HttpRequest.h"
-
-
-
+#include "HttpRequest.h"
+#include "HttpResponse.h"
 class Server;
 
 enum State
@@ -82,12 +79,15 @@ class ClientConnection
 		std::vector<char> outBuffer;
 		size_t parseOffset;
 		size_t outOffset;
+		size_t bytesErased;
 		const Server * server;
 		int vs_idx;
 		unsigned long long 	deadline_ms; // absolute deadline for current phase
 		bool               	readPaused;  // if true, we should not register POLLIN
 		bool 				writeLingerArmed; // after full flush, ask handler to keep POLLOUT once
 
+		HttpRequest req;
+		HttpResponse res;
 		/**
 		 * @brief Reads data from the client socket into inBuffer.
 		 *
@@ -103,10 +103,11 @@ class ClientConnection
 		 * - Respects remaining buffer space to avoid overflow
 		 */
 
-		 // ---- I/O limits ----
-    	static const size_t READ_CHUNK   = 8192;
-    	// Protect against slowloris / memory blowups:
-    	static const size_t MAX_INBUFFER = (1u << 20); // 1 MiB
+
+		// ---- I/O limits ----
+		static const size_t READ_CHUNK   = 8192;
+		// Protect against slowloris / memory blowups:
+		static const size_t MAX_INBUFFER = (1u << 20); // 1 MiB
 
 		// ---- timeouts (milliseconds) ----
 		// You can tweak these without touching code elsewhere.
@@ -181,7 +182,9 @@ class ClientConnection
 			server(0), vs_idx(-1),
 			deadline_ms(nowMs() + HDR_TIMEOUT_MS),
 			readPaused(false),
-			writeLingerArmed(false) {}
+			writeLingerArmed(false),
+			req(),
+			res() {}
 	
 		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd),
 			inBuffer(), outBuffer(),
@@ -189,7 +192,9 @@ class ClientConnection
 			server(srv), vs_idx(-1),
 			deadline_ms(nowMs() + HDR_TIMEOUT_MS),
 			readPaused(false),
-			writeLingerArmed(false) {}
+			writeLingerArmed(false),
+			req(),
+			res() {}
 		~ClientConnection() {};
 
 		bool wantsRead() const {
@@ -276,7 +281,12 @@ class ClientConnection
 				std::vector<char>& getOutBuffer() { return outBuffer; }
 				size_t& getParseOffset() { return parseOffset; }
 				void setState(State state) {this->state = state;}
-				bool processIncoming(std::string ok){ (void)ok; return this->processIncoming();};
+				bool processIncoming(std::string ok)
+				{ 
+					(void)ok;
+					return this->processIncoming();
+				};
+				size_t getparseOffset(){return this->parseOffset;};
 		#endif
 };
 

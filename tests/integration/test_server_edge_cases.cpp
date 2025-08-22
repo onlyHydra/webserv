@@ -40,12 +40,12 @@ TEST_CASE("Slowloris: partial headers then FIN => no response", "[server][slowlo
 TEST_CASE("Headers fragmented into tiny writes => still responds", "[server][fragment]")
 {
 	const int port = pick_free_port_ipv4();
-	ServerConfig cfg;
+	ServerConfig svcfg;
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.push_back(vs);
-	Server s(cfg);
+	svcfg.push_back(vs);
+	Server s(svcfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
 					 { s.run(25); });
@@ -73,12 +73,12 @@ TEST_CASE("Headers fragmented into tiny writes => still responds", "[server][fra
 TEST_CASE("MAX_INBUFFER overflow: >1MB without terminator => drop connection", "[server][overflow]")
 {
 	const int port = pick_free_port_ipv4();
-	ServerConfig cfg;
+	ServerConfig svcfg;
 	VirtualServer vs;
 	vs.listen_host = "127.0.0.1";
 	vs.listen_port = port;
-	cfg.push_back(vs);
-	Server s(cfg);
+	svcfg.push_back(vs);
+	Server s(svcfg);
 	REQUIRE_NOTHROW(s.start());
 	std::thread loop([&]
 					 { s.run(25); });

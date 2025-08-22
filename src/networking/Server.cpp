@@ -33,7 +33,7 @@ Server::Server(ServerConfig &srvConfig) : srvConfig(srvConfig)
 
 Server::~Server()
 {
-	stop();
+	// stop();
 	delete serverpipeline;
 }
 
@@ -73,11 +73,11 @@ void Server::unregisterListeners()
 
 void Server::closeAll()
 {
+	// Delete all Listener objects and clear the vector
 	for (std::vector<Listener *>::iterator it = listeners.begin();
 		 it != listeners.end(); ++it)
 	{
-
-		delete *it; 
+		delete *it;
 	}
 	listeners.clear();
 }
@@ -103,6 +103,7 @@ void Server::setCloseOnExec(int fd)
 void Server::stop()
 {
 	unregisterListeners();
+	closeAll();
 	loop.stop();
 }
 
