@@ -51,14 +51,24 @@ void Server::registerListeners()
 
 void Server::unregisterListeners()
 {
-	for (std::vector<Listener *>::const_iterator it = listeners.begin();
-		 it != listeners.end(); ++it)
-	{
-		if (*it && (*it)->getFD() >= 0)
-		{
-			loop.removeFD((*it)->getFD());
-		}
-	}
+    // We must delete the Listener objects and clear the vector,
+    // not only remove their FDs from the loop.
+    for (std::vector<Listener *>::iterator it = listeners.begin();
+         it != listeners.end(); ++it)
+    {
+        Listener *lst = *it;
+        if (!lst) continue;
+
+        const int fd = lst->getFD();
+        if (fd >= 0) {
+            // Also deletes the per-fd handler inside EventLoop, if any.
+            loop.removeFD(fd);
+        }
+
+        delete lst;  // Listener dtor should close its fd (RAII)
+        *it = 0;
+    }
+    listeners.clear();
 }
 
 void Server::closeAll()

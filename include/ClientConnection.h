@@ -22,6 +22,8 @@ Date: 8/10/2025
 // #include "HttpResponse.h"
 // #include "HttpRequest.h"
 
+
+
 class Server;
 
 enum State
@@ -82,6 +84,10 @@ class ClientConnection
 		size_t outOffset;
 		const Server * server;
 		int vs_idx;
+		unsigned long long 	deadline_ms; // absolute deadline for current phase
+		bool               	readPaused;  // if true, we should not register POLLIN
+		bool 				writeLingerArmed; // after full flush, ask handler to keep POLLOUT once
+
 		/**
 		 * @brief Reads data from the client socket into inBuffer.
 		 *
@@ -108,8 +114,6 @@ class ClientConnection
 
 		// ---- timing / backpressure bookkeeping ----
 		// Use unsigned long long to stay C++98-friendly.
-		unsigned long long deadline_ms; // absolute deadline for current phase
-		bool               readPaused;  // if true, we should not register POLLIN
 
 
 		// ---- helpers (implemented in .cpp) ----
@@ -130,6 +134,7 @@ class ClientConnection
 		inline bool expired() const           { 
 			return nowMs() > deadline_ms;
 		}
+
 
 
 		void readFromSocket();
@@ -166,12 +171,25 @@ class ClientConnection
 		static const size_t HIGH_WATER = 256u * 1024u; // pause reads if above
 		static const size_t LOW_WATER  =  64u * 1024u; // resume reads if below
 
-		explicit ClientConnection(int fd) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0) {
-			resetDeadlineForHeaders();
-		}		
-		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd), parseOffset(0), outOffset(0), server(srv) {
-			resetDeadlineForHeaders();
-		}
+
+		bool wantsWriteLinger() const { return writeLingerArmed; }
+
+		explicit ClientConnection(int fd_)
+			: state(READ_HEADERS), fd(fd_),
+			inBuffer(), outBuffer(),
+			parseOffset(0), outOffset(0),
+			server(0), vs_idx(-1),
+			deadline_ms(nowMs() + HDR_TIMEOUT_MS),
+			readPaused(false),
+			writeLingerArmed(false) {}
+	
+		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd),
+			inBuffer(), outBuffer(),
+			parseOffset(0), outOffset(0),
+			server(srv), vs_idx(-1),
+			deadline_ms(nowMs() + HDR_TIMEOUT_MS),
+			readPaused(false),
+			writeLingerArmed(false) {}
 		~ClientConnection() {};
 
 		bool wantsRead() const {

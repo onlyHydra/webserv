@@ -144,7 +144,10 @@ bool ClientConnection::processIncoming()
 			{
 				std::string resp = makeErrorResponse();
 				outBuffer.assign(resp.begin(), resp.end());
+				writeLingerArmed = false;
 				changeState(WRITE);
+				resetDeadlineForWrite();
+
 				return false;
 			}
 		}
@@ -152,6 +155,7 @@ bool ClientConnection::processIncoming()
 		outBuffer.assign(resp.begin(), resp.end());
 		if (!readPaused && outBuffer.size() >= HIGH_WATER)
     		readPaused = true;
+		writeLingerArmed = false;
 		changeState(WRITE);
 		resetDeadlineForWrite();
 		return true;
@@ -172,40 +176,60 @@ void ClientConnection::onReadable()
 
 void ClientConnection::onWritable()
 {
-	if (state != WRITE || !fd)
-		return;
+    if (state != WRITE || !fd) return;
 
-	const char *base = outBuffer.data();
-	size_t total = outBuffer.size();
+    const size_t total = outBuffer.size();
+    const char*  base  = total ? &outBuffer[0] : 0;
 
-	while (outOffset < total)
-	{
-		const char *p = base + outOffset;
-		size_t left = total - outOffset;
+    // If nothing left to send:
+    if (outOffset >= total) {
+        if (writeLingerArmed) {
+            // second writable with nothing to send -> close now
+            close();
+        } else {
+            // first time we see fully flushed: arm a one-shot linger
+            // so the handler will keep POLLOUT and poll will fire again,
+            // then we'll close on that next writable.
+            writeLingerArmed = true;
+            // keep the write deadline alive a tiny bit
+            bumpDeadline(WRITE_TIMEOUT_MS);
+        }
+        return;
+    }
 
-		ssize_t n = ::send(fd.get(), p, left, MSG_NOSIGNAL);
-		if (n > 0)
-		{
+    const char* p    = base + outOffset;
+    size_t      left = total - outOffset;
 
-			outOffset += static_cast<size_t>(n);
-			bumpDeadline(HDR_TIMEOUT_MS); 
-			size_t remaining = total - outOffset;
-			if (readPaused && remaining <= LOW_WATER)
-				readPaused = false;
-			continue;
-		}
-		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-			return;
-		// Error (EPIPE/ECONNRESET/etc.)
-		close();
-		return;
-	}
+    ssize_t n = ::send(fd.get(), p, left, MSG_NOSIGNAL);
+    if (n > 0) {
+        outOffset += static_cast<size_t>(n);
+        bumpDeadline(WRITE_TIMEOUT_MS);
 
-	// All bytes sent
-	// close();
-	deadline_ms = nowMs() + POST_WRITE_LINGER_MS; 
-	return;
+        // backpressure: maybe resume reads
+        size_t remaining = total - outOffset;
+        if (readPaused && remaining <= LOW_WATER)
+            readPaused = false;
+
+        if (outOffset >= total) {
+            // fully flushed on this call: do NOT close immediately
+            writeLingerArmed = true; // ask for one more POLLOUT to close
+        }
+        return;
+    }
+
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return; // try later
+
+    // hard error
+    close();
 }
+
+
+
+
+
+
+
 
 void ClientConnection::readFromSocket()
 {

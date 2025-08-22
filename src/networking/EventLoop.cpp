@@ -66,45 +66,67 @@ void EventLoop::removeFD(int fd)
 
 void EventLoop::run(int timeout_ms)
 {
-	_stop = false;
-	while (!_stop)
-	{
-		if (_pfds.empty())
-			break;
+    _stop = false;
+    while (!_stop)
+    {
+        if (_pfds.empty())
+            break;
 
-		int rc = ::poll(&_pfds[0], _pfds.size(), timeout_ms);
-		if (rc < 0)
-		{
-			if (errno == EINTR)
-				continue;
-			break;
-		}
-		if (rc == 0)
-			continue;
+        int rc = ::poll(&_pfds[0], _pfds.size(), timeout_ms);
+        if (rc < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
 
-		// Build a dispatch list (safe against removeFD during callbacks)
-		std::vector<std::pair<int, short> > dispatch;
-		dispatch.reserve(_pfds.size());
-		for (size_t i = 0; i < _pfds.size(); ++i)
-		{
-			short rev = _pfds[i].revents;
-			if (rev && !(rev & POLLNVAL))
-				dispatch.push_back(std::make_pair(_pfds[i].fd, rev));
-		}
+        // --- Timer tick on poll timeout ---
+        if (rc == 0)
+        {
+            // Build a dispatch list with revents == 0 (tick)
+            std::vector< std::pair<int, short> > dispatch;
+            dispatch.reserve(_pfds.size());
+            for (size_t i = 0; i < _pfds.size(); ++i)
+                dispatch.push_back(std::make_pair(_pfds[i].fd, (short)0));
 
-		for (size_t i = 0; i < dispatch.size(); ++i)
-		{
-			const int fd = dispatch[i].first;
-			const short rev = dispatch[i].second;
-			int idx = indexOfFD(fd);
-			if (idx < 0)
-				continue; // maybe removed by prior handler
-			Handler *h = _hs[idx];
-			if (h)
-				h->onEvent(fd, rev); // may call removeFD(fd)
-		}
-	}
+            for (size_t i = 0; i < dispatch.size(); ++i)
+            {
+                const int   fd  = dispatch[i].first;
+                const short rev = 0; // tick
+                int idx = indexOfFD(fd);
+                if (idx < 0)
+                    continue; // maybe removed by a prior handler
+                Handler *h = _hs[idx];
+                if (h)
+                    h->onEvent(fd, rev); // tick: lets connections enforce deadlines
+            }
+            continue; // next poll
+        }
+
+        // --- Normal event dispatch ---
+        std::vector< std::pair<int, short> > dispatch;
+        dispatch.reserve(_pfds.size());
+        for (size_t i = 0; i < _pfds.size(); ++i)
+        {
+            short rev = _pfds[i].revents;
+            if (rev && !(rev & POLLNVAL))
+                dispatch.push_back(std::make_pair(_pfds[i].fd, rev));
+        }
+
+        for (size_t i = 0; i < dispatch.size(); ++i)
+        {
+            const int   fd  = dispatch[i].first;
+            const short rev = dispatch[i].second;
+            int idx = indexOfFD(fd);
+            if (idx < 0)
+                continue; // maybe removed by prior handler
+            Handler *h = _hs[idx];
+            if (h)
+                h->onEvent(fd, rev); // may call removeFD(fd)
+        }
+    }
 }
+
 
 std::vector<std::pair<int, short> > EventLoop::handleEvents(int timeout_ms)
 {

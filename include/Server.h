@@ -289,42 +289,66 @@ class Server
 };
 
 class ClientHandler : public EventLoop::Handler {
-	public:
-		ClientHandler(EventLoop& loop, ClientConnection* c)
-		: eventLoop(loop), clientConnection(c) {}
+public:
+    ClientHandler(EventLoop& loop, ClientConnection* c)
+    : eventLoop(loop), clientConnection(c) {}
 
-		virtual ~ClientHandler() { delete clientConnection; }
+    virtual ~ClientHandler() { delete clientConnection; }
 
-		virtual void onEvent(int fd, short revents) {
-			// error/hangup → close
-			if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
-				clientConnection->close();
-				eventLoop.removeFD(fd); // deletes this
-				return;
-			}
-			if (revents & POLLIN) {
-				clientConnection->onReadable();
-				if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
-				if (clientConnection->wantsWrite()) eventLoop.modFD(fd, POLLOUT);
-			}
-			if (revents & POLLOUT) {
-				clientConnection->onWritable();
-				if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
-				if (!clientConnection->wantsWrite()) eventLoop.modFD(fd, POLLIN);
-			}
-			short want = 0;
-			if (clientConnection->wantsRead() && !clientConnection->isReadPaused()) want |= POLLIN;
-			if (clientConnection->hasPendingWrite())                    want |= POLLOUT;
+    virtual void onEvent(int fd, short revents) {
+        // --- Timer tick from EventLoop (poll timeout) ---
+        if (revents == 0) {
+            clientConnection->onTick();
+            if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
 
-			// Don’t accidentally add POLLIN while in WRITE.
-			if (want == 0 && clientConnection->wantsRead())             want = POLLIN;
+            // Recompute interest set after tick
+            short want = 0;
+            if (clientConnection->wantsRead() && !clientConnection->isReadPaused()) want |= POLLIN;
+            if (clientConnection->hasPendingWrite())                                 want |= POLLOUT;
+            if (want == 0 && clientConnection->wantsRead())                          want  = POLLIN; // default to read if eligible
+            eventLoop.modFD(fd, want);
+            return;
+        }
 
-			eventLoop.modFD(fd, want);
-		}
-	private:
-		EventLoop& eventLoop;
-		ClientConnection* clientConnection; // owned
+        // --- Error / hangup ---
+        if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            clientConnection->close();
+            eventLoop.removeFD(fd);
+            return;
+        }
+
+        // --- Readable ---
+        if (revents & POLLIN) {
+            clientConnection->onReadable();
+            if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
+        }
+
+        // --- Writable ---
+        if (revents & POLLOUT) {
+            clientConnection->onWritable();
+            if (clientConnection->isClosed()) { eventLoop.removeFD(fd); return; }
+        }
+
+        // --- Recompute desired events (backpressure-aware) ---
+        short want = 0;
+		if (clientConnection->wantsRead() && !clientConnection->isReadPaused()) want |= POLLIN;
+		if (clientConnection->hasPendingWrite())                                 want |= POLLOUT;
+
+		// NEW: force one more POLLOUT after full flush so onWritable() can close
+		if (!clientConnection->hasPendingWrite() && clientConnection->wantsWriteLinger())
+			want |= POLLOUT;
+
+		// Safety default: if still nothing and we’re in a read phase, at least POLLIN
+		if (want == 0 && clientConnection->wantsRead()) want = POLLIN;
+
+		eventLoop.modFD(fd, want);
+    }
+
+private:
+    EventLoop&        eventLoop;
+    ClientConnection* clientConnection; // owned
 };
+
 
 
 class AcceptorHandler : public EventLoop::Handler {
