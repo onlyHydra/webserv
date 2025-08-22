@@ -63,6 +63,13 @@ struct Location {
     std::map<std::string, CgiSpec>  cgi_by_ext;
     RateLimitConfig                 rate_limit;
     PutPatchConfig                  write_conf;
+    // new (parsing support)
+    std::vector<std::string>        try_files;      // tokens until ';'
+    int                             return_status;  // 0 if not set
+    std::string                     return_target;  // optional url/text
+    std::vector<std::string>        allow_list;     // CIDR or "all"
+    std::vector<std::string>        deny_list;      // CIDR or "all"
+    
 
     Location();
 	~Location();
@@ -79,6 +86,9 @@ public:
     std::map<int, std::string>       error_pages;
     std::map<std::string, UpstreamPool> upstreams; // <- required by tests
     std::vector<Location>            locations;
+    // new (server level)
+    std::string                      client_body_temp_path;
+    int                              client_max_body_size; // bytes, 0 = unlimited
 
     VirtualServer();
     ~VirtualServer();

@@ -19,6 +19,7 @@ class ServerConfig
 public:
     ServerConfig();
     ~ServerConfig();
+  
 
     // IO / entry points
     bool canOpen(const char *path) const;
@@ -51,6 +52,8 @@ public:
     std::string                      session_same_site;
     std::map<std::string,std::string> mime_mapping;
     std::map<std::string,CgiSpec>      cgi_defaults;
+    // global upstream pools (available by name for all servers)
+    std::map<std::string, UpstreamPool> upstream_pools;
 };
 
 #endif // SERVERCONFIG_H

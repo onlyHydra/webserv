@@ -19,15 +19,10 @@ UpstreamPool::~UpstreamPool() {}
 
 // ---- VirtualServer ----
 VirtualServer::VirtualServer()
-    : listen_host()
-    , listen_port(0)
-    , server_names()
-    , root()
-    , index_files()
-    , error_pages()
-    , upstreams()
-    , locations()
-{}
+: listen_host(), listen_port(0), server_names(), root(),
+  index_files(), error_pages(), upstreams(), locations(),
+  client_body_temp_path(), client_max_body_size(0) {}
+
 VirtualServer::~VirtualServer() {}
 
 

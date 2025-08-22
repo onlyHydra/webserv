@@ -19,7 +19,7 @@ static void on_sig(int)
 /** For now I get port from ARGV */
 int main(int argc, char** argv)
 {
-    const std::string &path = (argc > 1)? argv[1] : "config/default.conf";
+    const std::string &path = (argc > 1)? argv[1] : "config/extended.conf";
 
     ServerConfig cfg;            // no argv-taking ctor anymore
 
