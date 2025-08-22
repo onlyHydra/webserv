@@ -31,10 +31,11 @@ jobs:
             // Helper: resolve project + Status field + Done option
             async function getProjectAndStatus() {
               const q = `
-                query($org:String!, $number:Int!){
-                  organization(login:$org){
+                query($user:String!, $number:Int!){
+                  user(login:$user){
                     projectV2(number:$number){
                       id
+                      title
                       fields(first:100){
                         nodes{
                           __typename
@@ -44,8 +45,8 @@ jobs:
                     }
                   }
                 }`;
-              const r = await github.graphql(q, { org: ORG, number: PROJECT_NUMBER });
-              const project = r.organization.projectV2;
+              const r = await github.graphql(q, { user: ORG, number: PROJECT_NUMBER });
+              const project = r.user.projectV2;
               const statusField = project.fields.nodes.find(f => f && f.__typename === 'ProjectV2SingleSelectField' && f.name === STATUS_FIELD_NAME);
               if (!statusField) throw new Error(`Field "${STATUS_FIELD_NAME}" not found`);
               const doneOpt = statusField.options.find(o => o.name === DONE_OPTION_NAME);
