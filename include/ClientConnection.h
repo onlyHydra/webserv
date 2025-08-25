@@ -63,12 +63,18 @@ class ClientConnection
 		HttpRequest req;
 		HttpResponse res;
 		
+		size_t cgi_bytes_streamed;   // bytes pushed into outBuffer after headers
+		bool   cgi_headers_emitted;  // true once HTTP headers were sent to client
 
 
 		// ---- I/O limits ----
 		static const size_t READ_CHUNK   = 8192;
 		// Protect against slowloris / memory blowups:
 		static const size_t MAX_INBUFFER = (1u << 20); // 1 MiB
+		// Cap CGI output to something reasonable (16 MiB here)
+		static const size_t CGI_MAX_OUTPUT = (16u << 20);   // 16 MiB
+
+
 
 		// ---- timeouts (milliseconds) ----
 		// You can tweak these without touching code elsewhere.
@@ -145,7 +151,7 @@ class ClientConnection
 			writeLingerArmed(false),
 			req(),
 			res(),
-			 cgi_active(false),
+			cgi_active(false),
 			cgi_in_fd(-1),
 			cgi_out_fd(-1),
 			cgi_body_off(0),
@@ -215,6 +221,7 @@ class ClientConnection
 		bool beginCgi(const CgiSpec& spec,
               const std::string& script_path,
               const std::vector<std::string>& envv);
+		void unregisterCgiFds();
 
 		// Called by the EventLoop when a registered CGI fd is readable/writable.
 		void onCgiReadable(int fd);
