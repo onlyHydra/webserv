@@ -1,42 +1,54 @@
+// include/EventLoop.h
 #ifndef EVENTLOOP_H
 #define EVENTLOOP_H
 
 #include <vector>
+#include <map>
 #include <poll.h>
 
-class EventLoop
-{
-	public:
-		// Per-fd callback
-		struct Handler
-		{
-			virtual ~Handler() {}
-			virtual void onEvent(int fd, short revents) = 0;
-		};
+class ClientConnection; // forward
 
-	public:
-		EventLoop();
-		~EventLoop();
+class EventLoop {
+public:
+    struct Handler {
+        virtual ~Handler() {}
+        virtual void onEvent(int fd, short revents) = 0;
+    };
 
-		// Register / modify / remove a file descriptor
-		bool addFD(int fd, short events);			  // legacy
-		bool addFD(int fd, short events, Handler *h); // preferred
-		bool modFD(int fd, short events);
-		void removeFD(int fd); // deletes its handler
+    EventLoop();
+    ~EventLoop();
 
-		// Main loop: poll + call handlers
-		void run(int timeout_ms);
-		void stop();
+    enum { EV_READ = 1, EV_WRITE = 2 };
 
-		// Legacy helper (optional)
-		std::vector<std::pair<int, short> > handleEvents(int timeout_ms);
+    // Register / modify / remove a file descriptor
+    bool addFD(int fd, short events);                    // legacy
+    bool addFD(int fd, short events, Handler* h);        // preferred
+    bool addFD(int fd, short events, ClientConnection* owner); // optional owner map
+    bool modFD(int fd, short events);
+    void removeFD(int fd);
 
-	private:
-		std::vector<struct pollfd> _pfds;
-		std::vector<Handler *> _hs; // aligned with _pfds
-		bool _stop;
+    // *** Keep only this declaration ***
+    std::vector<std::pair<int, short> > handleEvents(int timeout_ms);
 
-		int indexOfFD(int fd) const;
+    void run(int timeout_ms);
+    void stop();
+
+    // Owner helpers (optional)
+    bool setOwner(int fd, ClientConnection* owner);
+    void clearOwner(int fd);
+    ClientConnection* ownerOf(int fd) const;
+
+private:
+    int indexOfFD(int fd) const;
+
+    std::vector<struct pollfd> _pfds;
+    std::vector<Handler*>      _hs;      // aligned with _pfds
+    bool                        _stop;
+
+    std::map<int,int>                 watch_mask_; // if you track masks
+    std::map<int,ClientConnection*>   owners_;     // fd -> owner
 };
 
 #endif // EVENTLOOP_H
+
+

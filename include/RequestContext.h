@@ -7,6 +7,10 @@ class ServerConfig;
 class VirtualServer;
 struct Location;
 
+// forward declare
+class ClientConnection;
+
+
 struct RequestContext
 {
 
@@ -29,7 +33,7 @@ struct RequestContext
 	// std::string remote_ip;
 	// int remote_port;
 	// bool is_tls;
-
+	ClientConnection* connection; // add this
 	RequestContext()
 		: cfg(0), vs(0), loc(0), vs_index(-1), local_port(0) {};
 };
