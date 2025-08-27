@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sys/stat.h>
+#include <unistd.h>
 
 void	checkFileContent(int length, const std::string &filename, const std::string &result)
 {
@@ -26,13 +28,17 @@ void	checkFileContent(int length, const std::string &filename, const std::string
 
 TEST_CASE("PUT_HANDLER", "[handler][put]")
 {
+	char cwd[4096];
+	getcwd(cwd, sizeof(cwd));
+	std::string directory(cwd);
+	std::string path(cwd);
+	std::string bodyFile(cwd);
+	path += "/DeleteMe.txt";
+	bodyFile += "/DeleteMeBodyFile.txt";
 	SECTION("Normal test with Content from body")
 	{
-		char cwd[4096];
-		getcwd(cwd, sizeof(cwd));
-		std::string path(cwd);
-		path += "DeleteMe.txt";
 		{
+			// Put new file with some content
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
@@ -47,6 +53,7 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::remove(path.c_str());
 		}
 		{
+			// Put new file with less content
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
@@ -60,6 +67,110 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			checkFileContent(1, path, "X");
 			std::remove(path.c_str());
 		}
+		{
+			// Put existing file with less content
+			HttpRequest req;
+			HttpResponse res;
+			RequestContext ctx;
+			PutPatchHandler pat;
+			std::ofstream file;
 
+			file.open(path, std::ios::out | std::ios::binary);
+			if (file.is_open())
+			{
+				file.write("123", 3);
+				file.close();
+			}
+			std::string parse;
+			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
+			req.parse(parse.c_str(), parse.length());
+			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_OK);
+			checkFileContent(1, path, "X");
+			std::remove(path.c_str());
+		}
+	}
+	SECTION("Normal test with Content from temp file")
+	{
+		{
+			// Put new file with some content which comes from temp body file
+			HttpRequest req;
+			HttpResponse res;
+			RequestContext ctx;
+			PutPatchHandler pat;
+			std::ofstream file;
+			
+			ctx.temp_file_used = true;
+			ctx.temp_filename = bodyFile;
+			std::remove(bodyFile.c_str());
+			std::remove(path.c_str());
+			file.open(bodyFile, std::ios::out | std::ios::binary);
+			if (file.is_open())
+			{
+				file.write("CONTENT", 7);
+				file.close();
+			}
+			std::string parse;
+			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
+			req.parse(parse.c_str(), parse.length());
+			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FILE_CREATED);
+			checkFileContent(7, path, "CONTENT");
+			std::remove(bodyFile.c_str());
+			std::remove(path.c_str());
+		}
+	}
+	SECTION("Invalid test for writing")
+	{
+		{
+			// Invalid PUT on target with wrong permissions
+			HttpRequest req;
+			HttpResponse res;
+			RequestContext ctx;
+			PutPatchHandler pat;
+			std::string wrongAccess;
+			std::ofstream file;
+
+			wrongAccess = path + "invalid.txt";
+			file.open(wrongAccess, std::ios::out | std::ios::binary);
+			if (file.is_open())
+			{
+				file.write("untouchable", 11);
+				file.close();
+			}
+			chmod(wrongAccess.c_str(), S_IRUSR | S_IRGRP | S_IROTH);
+			std::string parse;
+			parse = "PUT " + wrongAccess + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
+			req.parse(parse.c_str(), parse.length());
+			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FORBIDDEN);
+			std::remove(wrongAccess.c_str());
+		}
+	}
+	SECTION("Invalid test for reading")
+	{
+		{
+			// Invalid PUT on target from temp file with wrong permissions
+			HttpRequest req;
+			HttpResponse res;
+			RequestContext ctx;
+			PutPatchHandler pat;
+			std::ofstream file;
+			
+			ctx.temp_file_used = true;
+			ctx.temp_filename = bodyFile;
+			std::remove(bodyFile.c_str());
+			std::remove(path.c_str());
+			file.open(bodyFile, std::ios::out | std::ios::binary);
+			if (file.is_open())
+			{
+				file.write("CONTENT", 7);
+				file.close();
+			}
+			chmod(bodyFile.c_str(), 0);
+			std::string parse;
+			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
+			req.parse(parse.c_str(), parse.length());
+			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FORBIDDEN);
+			std::remove(bodyFile.c_str());
+			std::remove(path.c_str());
+		}
 	}
 }
