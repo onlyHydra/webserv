@@ -15,7 +15,7 @@ Date: 8/10/2025
 #include <cstring>
 #include <string>
 #include <sys/socket.h>
-
+#include "CgiProcess.h" 
 #include "UniqueFD.h"
 #include "Router.h"
 #include "RouteResolver.h"
@@ -31,43 +31,17 @@ enum State
 	CLOSE,
 };
 
-/**
- * @class ClientConnection
- * @brief Manages a single client connection, handling socket I/O and state transitions.
- *
- * The ClientConnection class encapsulates the logic for reading from and writing to a client socket,
- * buffering incoming and outgoing data, and managing the connection's state throughout its lifecycle.
- * Currently implements a simple HTTP server that responds with a "hello" message to any complete request.
- *
- * @note This class is not copyable or movable.
- *
- * Members:
- * - State state: Current state of the connection (READ_HEADERS, WRITE, or CLOSE).
- * - UniqueFD fd: File descriptor wrapper for the client socket.
- * - std::vector<char> inBuffer: Buffer for incoming data from the client.
- * - std::vector<char> outBuffer: Buffer for outgoing data to the client.
- * - size_t parseOffset: Offset in the input buffer for incremental parsing (avoids rescanning).
- * - size_t outOffset: Offset in the output buffer for partial writes.
- *
- * Constants:
- * - static const size_t READ_CHUNK: Size of each read operation from the socket (8192 bytes).
- * - static const size_t MAX_INBUFFER: Maximum allowed size for the input buffer (1MB).
- *
- * Public Methods:
- * - explicit ClientConnection(int fd): Constructs a connection with the given socket file descriptor.
- * - ~ClientConnection(): Destructor.
- * - State getState(): Returns the current state of the connection.
- * - void onReadable(): Handles socket readability events by reading data and processing it.
- * - void onWritable(): Handles socket writability events by sending buffered data.
- * - void changeState(State): Changes the connection's state.
- * - void processIncoming(): Processes incoming data, looking for complete HTTP headers.
- * - void close(): Closes the client connection and transitions to CLOSE state.
- *
- * Private Methods:
- * - void readFromSocket(): Reads data from socket into inBuffer, respects MAX_INBUFFER limit.
- *
- * @warning After calling close(), the ClientConnection should be destroyed/removed.
- */
+struct CgiState {
+  CgiProcess proc;
+  int in_fd;          // proc.inFD()
+  int out_fd;         // proc.outFD()
+  size_t body_off;
+  std::string buf;    // accumulates CGI output
+  bool headers_done;
+  int status;         // parsed "Status: NNN" or 200
+  long content_len;   // from CGI headers, or -1 if unknown
+  unsigned long long deadline;
+};
 
 
 class ClientConnection
@@ -88,26 +62,19 @@ class ClientConnection
 
 		HttpRequest req;
 		HttpResponse res;
-		/**
-		 * @brief Reads data from the client socket into inBuffer.
-		 *
-		 * This method performs non-blocking reads from the socket in READ_CHUNK
-		 * sized pieces. It enforces the MAX_INBUFFER limit to prevent memory
-		 * exhaustion attacks.
-		 *
-		 * Behavior:
-		 * - Only reads when state is READ_HEADERS
-		 * - Continues reading until socket would block (EAGAIN/EWOULDBLOCK)
-		 * - Closes connection if buffer exceeds MAX_INBUFFER
-		 * - Closes connection on read errors or EOF (n == 0)
-		 * - Respects remaining buffer space to avoid overflow
-		 */
+		
+		size_t cgi_bytes_streamed;   // bytes pushed into outBuffer after headers
+		bool   cgi_headers_emitted;  // true once HTTP headers were sent to client
 
 
 		// ---- I/O limits ----
 		static const size_t READ_CHUNK   = 8192;
 		// Protect against slowloris / memory blowups:
 		static const size_t MAX_INBUFFER = (1u << 20); // 1 MiB
+		// Cap CGI output to something reasonable (16 MiB here)
+		static const size_t CGI_MAX_OUTPUT = (16u << 20);   // 16 MiB
+
+
 
 		// ---- timeouts (milliseconds) ----
 		// You can tweak these without touching code elsewhere.
@@ -140,38 +107,37 @@ class ClientConnection
 
 		void readFromSocket();
 
-		/* @brief Processes incoming data from the client connection.
-		*
-		* This method examines the input buffer for complete HTTP headers by searching
-		* for the "\r\n\r\n" sequence. It uses parseOffset for incremental parsing to
-		* avoid rescanning the entire buffer on each call.
-		*
-		* Current behavior (placeholder implementation):
-		* - Only processes data when state is READ_HEADERS
-		* - Searches for complete HTTP headers using helper function headersComplete()
-		* - When headers are complete, generates a simple "hello" HTTP response
-		* - Transitions to WRITE state to send the response
-		*
-		* @note This is a placeholder implementation that will be extended to proper
-		*       HTTP request parsing later.
-		*/
+		
 		bool processIncoming();
 		
 		// bool headersComplete(const std::vector<char> &buf, size_t &parseOffset, HttpRequest &request);
 
 	public:
 
-		static const int HDR_TIMEOUT_MS   = 10000; // headers read deadline
-		static const int BODY_TIMEOUT_MS  = 20000; // (reserved for future body reads)
-		static const int WRITE_TIMEOUT_MS = 10000; // response flush deadline
-		// near your other timeouts
-		static const unsigned POST_WRITE_LINGER_MS = 100; // close very soon after flush
-
-
-		// ---- backpressure watermarks (bytes) ----
-		static const size_t HIGH_WATER = 256u * 1024u; // pause reads if above
-		static const size_t LOW_WATER  =  64u * 1024u; // resume reads if below
-
+	  // --- CGI state (minimal, safe defaults) ---
+	  
+	  
+	  static const int HDR_TIMEOUT_MS   = 10000; // headers read deadline
+	  static const int BODY_TIMEOUT_MS  = 20000; // (reserved for future body reads)
+	  static const int WRITE_TIMEOUT_MS = 10000; // response flush deadline
+	  // near your other timeouts
+	  static const unsigned POST_WRITE_LINGER_MS = 100; // close very soon after flush
+	  
+	  
+	  // ---- backpressure watermarks (bytes) ----
+	  static const size_t HIGH_WATER = 256u * 1024u; // pause reads if above
+	  static const size_t LOW_WATER  =  64u * 1024u; // resume reads if below
+	  
+	  CgiProcess proc;
+	  bool        cgi_active;
+	  int         cgi_in_fd;
+	  int         cgi_out_fd;
+	  size_t      cgi_body_off;
+	  std::string cgi_buf;
+	  bool        cgi_headers_done;
+	  int         cgi_status;
+	  long        cgi_content_len;
+	  unsigned long long cgi_deadline;
 
 		bool wantsWriteLinger() const { return writeLingerArmed; }
 
@@ -184,7 +150,16 @@ class ClientConnection
 			readPaused(false),
 			writeLingerArmed(false),
 			req(),
-			res() {}
+			res(),
+			cgi_active(false),
+			cgi_in_fd(-1),
+			cgi_out_fd(-1),
+			cgi_body_off(0),
+			cgi_headers_done(false),
+			cgi_status(200),
+			cgi_content_len(-1),
+			cgi_deadline(0ULL)
+			{}
 	
 		explicit ClientConnection(int fd,const Server* srv) : state(READ_HEADERS), fd(fd),
 			inBuffer(), outBuffer(),
@@ -194,7 +169,16 @@ class ClientConnection
 			readPaused(false),
 			writeLingerArmed(false),
 			req(),
-			res() {}
+			res(),
+			cgi_active(false),
+			cgi_in_fd(-1),
+			cgi_out_fd(-1),
+			cgi_body_off(0),
+			cgi_headers_done(false),
+			cgi_status(200),
+			cgi_content_len(-1),
+			cgi_deadline(0ULL)
+			{}
 		~ClientConnection() {};
 
 		bool wantsRead() const {
@@ -209,56 +193,15 @@ class ClientConnection
 		void setReadPaused(bool v) {
 			readPaused = v;
 		}
-		/**
-		 * @brief Retrieves the current state of the client connection.
-		 *
-		 * @return The current State of the client connection.
-		 */
+		
 		State getState() { return this->state; }
-		/**
-		 * @brief Handles the event when the client connection becomes readable.
-		 *
-		 * This method reads data from the client socket into the input buffer and then
-		 * processes the incoming data to check for complete HTTP headers. It continues
-		 * reading until the socket would block or an error occurs.
-		 *
-		 * The method:
-		 * 1. Calls readFromSocket() to read available data
-		 * 2. Calls processIncoming() to check for complete HTTP requests
-		 */
+		
 		void onReadable();
-		/**
-		 * @brief Handles the event when the client connection becomes writable.
-		 *
-		 * This method sends buffered data from outBuffer to the client socket.
-		 * It uses MSG_NOSIGNAL to avoid SIGPIPE and handles partial writes by
-		 * updating outOffset. Once all data is sent, it closes the connection.
-		 *
-		 * The method:
-		 * 1. Only operates when state is WRITE
-		 * 2. Sends data starting from outOffset
-		 * 3. Handles EAGAIN/EWOULDBLOCK by returning (to retry later)
-		 * 4. Closes connection on errors or when all data is sent
-		 */
+		
 		void onWritable();
-		/**
-		 * @brief Changes the current state of the client connection.
-		 *
-		 * This is a simple setter that updates the internal state variable.
-		 * No validation or side effects are performed.
-		 *
-		 * @param state The new state to transition to (READ_HEADERS, WRITE, or CLOSE).
-		 */
+		
 		void changeState(State);
-		/**
-		 * @brief Closes the client connection and releases any associated resources.
-		 *
-		 * This method safely closes the file descriptor using fd.reset() and
-		 * transitions the connection state to CLOSE. It's safe to call multiple times.
-		 *
-		 * @warning The ClientConnection object should be destroyed/removed after
-		 *          calling this method, as indicated by the implementation comment.
-		 */
+		
 		
 		void onTick();
 
@@ -274,6 +217,15 @@ class ClientConnection
 		}
 		
 		void close();
+
+		bool beginCgi(const CgiSpec& spec,
+              const std::string& script_path,
+              const std::vector<std::string>& envv);
+		void unregisterCgiFds();
+
+		// Called by the EventLoop when a registered CGI fd is readable/writable.
+		void onCgiReadable(int fd);
+		void onCgiWritable(int fd);
 
 		#ifdef UNIT_TEST
 			public:

@@ -1,7 +1,16 @@
 #include "RouteResolver.h"
 #include <cstddef> // size_t
 
-// Tiny helper (C++98)
+/**
+ * @brief Checks if a string starts with the specified prefix.
+ *
+ * This function compares the beginning of the string @p s with the string @p prefix.
+ * It returns true if @p s starts with @p prefix, and false otherwise.
+ *
+ * @param s The string to check.
+ * @param prefix The prefix to look for at the start of @p s.
+ * @return true if @p s starts with @p prefix, false otherwise.
+ */
 static bool starts_with(const std::string &s, const std::string &prefix)
 {
 	if (prefix.size() > s.size())
@@ -49,4 +58,42 @@ const Location *RouteResolver::matchLocation(const VirtualServer &vs,
 		}
 	}
 	return best; // may be NULL
+}
+
+const Location *RouteResolver::matchLocation(const VirtualServer &vs,
+											 const std::string &path,
+											 std::string &matched_prefix)
+{
+	matched_prefix.clear();
+	const Location *best = 0;
+	std::string::size_type best_len = 0;
+
+	for (std::vector<Location>::const_iterator it = vs.locations.begin();
+		 it != vs.locations.end(); ++it)
+	{
+		const Location &L = *it;
+
+		if (L.regex)
+		{
+			continue;
+		}
+
+		const std::string &pfx = L.path_prefix;
+		if (pfx.empty())
+			continue;
+
+		if (pfx == path)
+		{
+			matched_prefix = pfx;
+			return &L;
+		}
+
+		if (starts_with(path, pfx) && pfx.size() > best_len)
+		{
+			best = &L;
+			best_len = pfx.size();
+			matched_prefix = pfx;
+		}
+	}
+	return best;
 }

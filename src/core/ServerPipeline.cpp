@@ -16,6 +16,8 @@ date: 8/10/2025
 #include "CgiHandler.h"
 #include "PutPatchHandler.h"
 #include "RequestContext.h"
+#include <sys/stat.h>
+#include <sstream>
 
 bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRequest &req, HttpResponse &res)
 {
@@ -44,6 +46,81 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRe
 	ctx.upstream_name = decision.upstream_name;
 	if (decision.vs)
 		ctx.vs = decision.vs; // Router may refine VS
+
+	ctx.rel_path = decision.rel_path;
+	ctx.effective_root = decision.effective_root;
+
+	// HK_RETURN: immediate response
+	if (decision.kind == RouteDecision::HK_RETURN)
+	{
+		// If redirect-like status, set Location header; otherwise put target in body
+		if (!decision.return_target.empty())
+		{
+			if (decision.status >= 300 && decision.status < 400)
+				ctx.cfg->servers()[vs_indx].locations; // no-op to avoid unused warning
+		}
+		// build a simple body containing the return_target (or empty)
+		std::string body = decision.return_target;
+		res.body.assign(body.begin(), body.end());
+		res.bodyLength = res.body.size();
+		std::ostringstream oss;
+		oss << res.bodyLength;
+		res.headers.set(std::string("Content-Length"), oss.str());
+		if (decision.status >= 300 && decision.status < 400 && !decision.return_target.empty())
+			res.headers.set(std::string("Location"), decision.return_target);
+		return true;
+	}
+
+	// Enforce body size limits (location then server)
+	{
+		size_t reqBody = req.getBodyLength();
+		size_t locLimit = 0;
+		if (ctx.loc)
+			locLimit = ctx.loc->write_conf.max_body_bytes;
+		size_t srvLimit = ctx.vs ? ctx.vs->client_max_body_size : 0;
+		size_t limit = (locLimit > 0) ? locLimit : srvLimit;
+		if (limit > 0 && reqBody > (size_t)limit)
+		{
+			// prepare simple 413 body
+			std::string body = "Payload Too Large";
+			res.body.assign(body.begin(), body.end());
+			res.bodyLength = res.body.size();
+			std::ostringstream oss;
+			oss << res.bodyLength;
+			res.headers.set(std::string("Content-Length"), oss.str());
+			return true; // response ready (caller will send and close)
+		}
+	}
+
+	// Evaluate try_files tokens if present
+	if (!decision.try_files.empty())
+	{
+		for (std::vector<std::string>::const_iterator it = decision.try_files.begin(); it != decision.try_files.end(); ++it)
+		{
+			std::string token = *it;
+			std::string candidate;
+			if (token == std::string("$uri"))
+				candidate = ctx.effective_root + ctx.rel_path;
+			else if (!token.empty() && token[0] == '/')
+				candidate = ctx.effective_root + token;
+			else
+				candidate = ctx.effective_root + token; // relative token
+
+			struct stat st;
+			if (stat(candidate.c_str(), &st) == 0)
+			{
+				// Found a matching file — rewrite rel_path to candidate-relative and dispatch static
+				if (candidate.find(ctx.effective_root) == 0)
+				{
+					ctx.rel_path = candidate.substr(ctx.effective_root.size());
+					if (ctx.rel_path.empty() || ctx.rel_path[0] != '/')
+						ctx.rel_path = std::string("/") + ctx.rel_path;
+				}
+				decision.kind = RouteDecision::HK_STATIC;
+				break;
+			}
+		}
+	}
 
 	// Pick the handler
 	Handler *h = 0;
