@@ -29,6 +29,7 @@ Date: 8/16/2025
 // Counter how many Patch methods we have programmed
 # define MIME_PATCH_COUNTER 2
 
+// What type our given Request is (used for writing, to distinguish behaviour)
 enum FileOpenMode
 {
 	PUT,
@@ -58,8 +59,8 @@ enum FileOpenMode
  * 5) Add an if statement for calling it in handle_patch() as well as a function
  * 		(Try and orient yourself on the other patch functions like applyPatchAppend())
  * Relevant Headers:
- * Put: Response: HDR_CONTENT_TYPE, HDR_CONTENT_LENGTH
- * Patch: Response: HDR_CONTENT_TYPE, HDR_CONTENT_LENGTH, HDR_PATCH_OFFSET  Request: HDR_ACCEPT_PATCH
+ * Put: Response: HDR_CONTENT_TYPE
+ * Patch: Response: HDR_CONTENT_TYPE, HDR_PATCH_OFFSET  Request: HDR_ACCEPT_PATCH
  */
 class PutPatchHandler : public Handler
 {
@@ -72,12 +73,12 @@ class PutPatchHandler : public Handler
 		 * @param req Request that specifies the file to overwrite
 		 * @param res UNUSED Http Response, needs to be here to match the (...)::handle() prototype
 		 * @param ctx Context, how the file should be created
-		 * @returns (HTTP_FILE_CREATED) 201 if new resource created 
-		 * @returns (HTTP_OK) 200 if existing file updated
-		 * @returns (HTTP_FORBIDDEN) 403 if no write permissions on this file
-		 * @returns (HTTP_INV_SERVER_ERR) 500 on unexpected errors
+		 * @returns HTTP_FILE_CREATED (201) if new resource created 
+		 * @returns HTTP_OK (200) if existing file updated
+		 * @returns HTTP_FORBIDDEN (403) if no write permissions on this file
+		 * @returns HTTP_INV_SERVER_ERR (500) on unexpected errors
 		 * 
-		 * 		 * Checks if file exists, then tries to write to file
+		 * Checks if file exists, then tries to write to file
 		 * Writing is based on if the context (ctx) temp_file_used is set to true
 		 * If true, then the file gets written based on a teporary files data
 		 * If false, then the file gets written based on the Requests entire body
@@ -91,10 +92,10 @@ class PutPatchHandler : public Handler
 		 * @param req Request that specifies the file to overwrite
 		 * @param res Response, which will get some Header Data set from this function
 		 * @param ctx Context, how the file should be created
-		 * @returns	HTTP_INV_MEDIA (415) if no valid Patch Method was specified in Header
 		 * @returns	HTTP_BAD_REQUEST (400) if Path Method is invalidly configured
-		 * @returns HTTP_NOT_FOUND (404) if target file is not existant
 		 * @returns HTTP_FORBIDDEN (403) if target file cannot be opened, but exists
+		 * @returns HTTP_NOT_FOUND (404) if target file is not existant
+		 * @returns	HTTP_INV_MEDIA (415) if no valid Patch Method was specified in Header
 		 * @returns HTTP_INV_SERVER_ERR (500) if error while writing to file
 		 * 
 		 * Each Patch Requests must come with a specified method for patching data
