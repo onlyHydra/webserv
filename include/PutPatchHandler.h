@@ -38,11 +38,16 @@ enum FileOpenMode
 
 /**
  * Handles the PUT and PATCH methods
+ * Theese try to write to the target file as specified in the HttpRequest
+ * The Content to be written will be its body, either in the Request or in a seperate file
+ * The amount of bytes written depends on the Requests HDR_CONTENT_LENGTH
  * See the respective functions for further information
  * @warning Normally, patching only changes a file, if all operations succeed
  * But right now, if something fails midway, the file will still be halfway changed
  * As we do not have methods that are prone to failing midway (like a json patch),
  * i have elected to skip this feature for now
+ * @warning Neither of theese functions checks, if the User is allowed to use them,
+ * as it seemed easier for the caller to check this, in line with the other handlers
  * @note Adding a new patch method:
  * 1) Add a new Header Definition
  * 		#define MIME_PATCH_<new-type>
@@ -52,6 +57,9 @@ enum FileOpenMode
  * 		(Should be added at the bottom of the enum)
  * 5) Add an if statement for calling it in handle_patch() as well as a function
  * 		(Try and orient yourself on the other patch functions like applyPatchAppend())
+ * Relevant Headers:
+ * Put: Response: HDR_CONTENT_TYPE, HDR_CONTENT_LENGTH
+ * Patch: Response: HDR_CONTENT_TYPE, HDR_CONTENT_LENGTH, HDR_PATCH_OFFSET  Request: HDR_ACCEPT_PATCH
  */
 class PutPatchHandler : public Handler
 {
@@ -61,27 +69,27 @@ class PutPatchHandler : public Handler
 		
 		/**
 		 * @brief Creates or overwrites a file
+		 * @param req Request that specifies the file to overwrite
+		 * @param res UNUSED Http Response, needs to be here to match the (...)::handle() prototype
+		 * @param ctx Context, how the file should be created
+		 * @returns (HTTP_FILE_CREATED) 201 if new resource created 
+		 * @returns (HTTP_OK) 200 if existing file updated
+		 * @returns (HTTP_FORBIDDEN) 403 if no write permissions on this file
+		 * @returns (HTTP_INV_SERVER_ERR) 500 on unexpected errors
 		 * 
-		 * Checks if file exists, then tries to write to file
+		 * 		 * Checks if file exists, then tries to write to file
 		 * Writing is based on if the context (ctx) temp_file_used is set to true
 		 * If true, then the file gets written based on a teporary files data
 		 * If false, then the file gets written based on the Requests entire body
 		 * Returns different codes based on if file already existed and was modified
 		 * or if the file was created completely new
-		 * @param req Request that specifies the file to overwrite
-		 * @param res UNUSED Http Response, needs to be here to match the (...)::handle() prototype
-		 * @param ctx Context, how the file should be created
-		 * @returns HTTP_FILE_CREATED if new resource created 
-		 * @returns HTTP_OK if existing file updated
-		 * @returns HTTP_FORBIDDEN if no write permissions on this file
-		 * @returns HTTP_INV_SERVER_ERR on unexpected errors
 		 */
 		static int	handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 
 		/**
 		 * @brief Handles a Patch Request (augmenting an existing file)
 		 * @param req Request that specifies the file to overwrite
-		 * @param res Response, which should be prepared by this function
+		 * @param res Response, which will get some Header Data set from this function
 		 * @param ctx Context, how the file should be created
 		 * @returns	HTTP_INV_MEDIA (415) if no valid Patch Method was specified in Header
 		 * @returns	HTTP_BAD_REQUEST (400) if Path Method is invalidly configured
