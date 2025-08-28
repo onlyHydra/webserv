@@ -93,16 +93,14 @@ int	Atoi::atoiHttpReq(const char *in, bool &error)
 /**
  * @brief Parser for Patch method which requires a file offset
  * @param in String to convert
- * @param error will be set to true, if operation fails
  * @returns size_t based on the input (0 if error)
  * @note Only specific whitespaces, then at most 1 plus, then some number
  */
-size_t	Atoi::atoiPatchOffset(const char *in, bool &error)
+size_t	Atoi::atoiPatchOffset(const char *in)
 {
 	int	i;
 	size_t	result;
 
-	error = true;
 	i = 0;
 	while (in[i] == ' ' || in[i] == '\t' || in[i] == '\v' || in[i] == '\f')
 		i++;
@@ -118,6 +116,5 @@ size_t	Atoi::atoiPatchOffset(const char *in, bool &error)
 	}
 	if (in[i])
 		return (0);
-	error = false;
 	return (result);
 }

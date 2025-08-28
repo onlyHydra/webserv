@@ -59,10 +59,13 @@ int	writeFilePath(const char *path, std::size_t offset, enum FileOpenMode mode, 
 {
 	std::fstream to; 
 	std::size_t fileLength;
+	bool exists;
+
+	// Store if file existed alredy, for later
+	exists = access(path, F_OK) + 1;
 
 	// Try to open target
 	openWithMode(to, path, mode);
-	std::cout << "Opened file" << std::endl;
 
 	// For Patch Methods, if file doesnt exist, its an error, for Put its not
 	if (access(path, F_OK) != 0 && mode > PUT)
@@ -71,7 +74,6 @@ int	writeFilePath(const char *path, std::size_t offset, enum FileOpenMode mode, 
 	// If still not open, then invalid permissions
 	if (!to.is_open())
 		return (HTTP_FORBIDDEN);
-	std::cout << "File stream was opened" << std::endl;
 
 	// Skip to offset when required
 	if (mode > APPEND)
@@ -84,20 +86,16 @@ int	writeFilePath(const char *path, std::size_t offset, enum FileOpenMode mode, 
 			to.seekp(fileLength, std::ios::beg);
 	}
 
-	std::cout << "Skipped offset if specified" << std::endl;
-
 	// Extra check in case seeking caused error
 	if (!to.good())
 	{
 		to.close();
 		return (HTTP_INV_SERVER_ERR);
 	}
-	std::cout << "Stream still good" << std::endl;
 
 	// Write in a single write from our <cont> into our target
 	to.write(cont.data(), cont.size());
 
-	std::cout << "Wrote data to file" << std::endl;
 	// If error in target
 	if (!to.good())
 	{
@@ -105,7 +103,9 @@ int	writeFilePath(const char *path, std::size_t offset, enum FileOpenMode mode, 
 		return (HTTP_INV_SERVER_ERR);
 	}
 	to.close();
-	return (0);
+	if (exists)
+		return (HTTP_OK);
+	return (HTTP_FILE_CREATED);
 }
 
 /**
@@ -126,7 +126,11 @@ int	writeFileTemp(const char *path, std::size_t offset, enum FileOpenMode mode, 
 	std::fstream to; 
 	std::ifstream from;
 	char buffer[PUT_WRITE_BUFFER_SIZE];
+	bool exists;
 
+	// Store if file existed alredy, for later
+	exists = access(path, F_OK) + 1;
+	
 	// Try to open target with mode
 	openWithMode(to, path, mode);
 
@@ -185,7 +189,9 @@ int	writeFileTemp(const char *path, std::size_t offset, enum FileOpenMode mode, 
 	}
 	from.close();
 	to.close();
-	return (0);
+	if (exists)
+		return (HTTP_OK);
+	return (HTTP_FILE_CREATED);
 }
 
 /**
@@ -202,140 +208,85 @@ int	writeFileTemp(const char *path, std::size_t offset, enum FileOpenMode mode, 
 int decideWrite(const char *path, int offset, enum FileOpenMode mode, HttpRequest &req, RequestContext &ctx)
 {
 	if (ctx.temp_file_used)
-	{
-		std::cout << "Decided to use Temp File for content" << std::endl;
 		return (writeFileTemp(path, offset, mode, ctx.temp_filename));
-	}
 	else
-	{
-		std::cout << "Decided to use body for content" << std::endl;
 		return (writeFilePath(path, offset, mode, req.getBody()));
-	}
 }
 
 /**
- * @brief Creates or overwrites a file
+ * @brief Set the Response Headers HDR_ACCEPT_PATCH field
+ * @param res HttpResponse, whoose fields to set
+ * @param mime_map Map of all allowed MIME types in the server config
  * 
- * Checks if file exists, then tries to write to file
- * Writing is based on if the context (ctx) temp_file_used is set to true
- * If true, then the file gets written based on a teporary files data
- * If false, then the file gets written based on the Requests entire body
- * Returns different codes based on if file already existed and was modified
- * or if the file was created completely new
- * @param req Request that specifies the file to overwrite
- * @param res Response, which should be prepared by this function (UNUSED)
- * @param ctx Context, how the file should be created
- * @returns HTTP_FILE_CREATED if new resource created 
- * @returns HTTP_OK if existing file updated
- * @returns HTTP_FORBIDDEN if no write permissions on this file
- * @returns HTTP_INV_SERVER_ERR on unexpected errors
+ * Iterates through all Mime mappings in the ServerConfig,
+ * checks if they are a registered Patch method,
+ * then stores them into a string and sets the Header field to that string
  */
-int	PutPatchHandler::handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+void	responseSetAllowed(HttpResponse &res, const std::map<std::string, std::string> &mime_map)
 {
-	int			status;
-	bool		exists;
-	std::string path_string;
-	
-	(void)res;
-	// Make path for file to put
-	path_string = req.getPath();
-	const char *path = path_string.c_str();
+	std::map<std::string, std::string>::const_iterator it_mime;
+	std::string types[MIME_PATCH_COUNTER] = {MIME_PATCH_APPEND, MIME_PATCH_OVERWRITE};
+	std::vector<std::string> allowed_list;
+	std::string allowed;
 
-	std::cout << "Target path is [" << path << "]" << std::endl;
-	// Store if the file is new or not, for later
-	exists = access(path, F_OK) + 1;
-	std::cout << "Target file exists: " << exists << std::endl;
-
-	// Create file and write to it
-	status = decideWrite(path, 0, PUT, req, ctx);
-
-	// If Any exit code encountered in writing, exit with that
-	if (status != 0)
-		return (status);
-	
-	// If File was created from fresh -> 201, otherwise -> 200
-	if (exists)
-		return (HTTP_OK);
-	return (HTTP_FILE_CREATED);
-}
-
-/**
- * @brief Populates the given params based on the given input
- * 
- * It is mandatory to have A [TYPE], '/', [SUBTYPE]
- * After that, the input may end, or continue on like:
- * ';', SPACES, [PARAM]
- * Errors include:
- * No '\'
- * No Type
- * No subtype
- * (if parameters: No empty params)
- * @returns false if error encountered
- */
-bool	populatePatchMethod(const std::string &input, std::string &type, \
-							std::string &subtype, std::string parameter)
-{
-	size_t	start = 0;
-	size_t	end = 0;
-
-	// Get type, before '\'
-	end = input.find('/');
-	if (end == std::string::npos)
-		return (false);
-	type = input.substr(start, end - start);
-	if (type.empty())
-		return (false);
-	start = end + 1;
-	
-	// Subtype may be followed by ; or not
-	end = input.find(';');
-	if (end == std::string::npos)
+	// For each Mime Map Entry
+	for (it_mime = mime_map.begin(); it_mime != mime_map.end(); it_mime++)
 	{
-		subtype = input.substr(start, input.length() - start);
-		if (subtype.empty())
-			return (false);
-		return (true);
+		// Check against all programmed MIME types for Patch
+		for (int i = 0; i < MIME_PATCH_COUNTER; i++)
+		{
+			// If a programmed one was found, add it to the list
+			if (it_mime->second == types[i])
+			{
+				allowed_list.push_back(it_mime->second);
+				break;
+			}
+		}
 	}
-	// If ; after subtype
-	subtype = input.substr(start, end - start);
-	if (subtype.empty())
-		return (false);
-	start = end + 1;
-	while (input[start] == ' ')
-		start++;
 
-	parameter = input.substr(start, input.length() - start);
-	if (parameter.empty())
-		return (false);
-	return (true);
+	// For all the registered allowed methods, make them into a string
+	for (std::vector<std::string>::const_iterator it_alow = allowed_list.begin(); \
+	it_alow != allowed_list.end(); it_alow++)
+	{
+		if (it_alow != allowed_list.begin())
+			allowed += ", ";
+		allowed += *it_alow;
+	}
+	res.headers.set(HDR_ACCEPT_PATCH, allowed);
 }
 
 /**
- * @brief Checks if specified path method is allowed in config and sets mime-type
+ * @brief Checks if specified path method is allowed in config of MIME types
  * 
  * Iterates over all elements of the MIME types stored in server config and checks
- * if the chosen_mime matches their value.
- * If so, sets the mime_type to this key value and returns true
- * @param chosen_mime Combination of MIME-type '/' MIME-subtype, is searched in map
- * @param mime_type Will be set by function to short-hand for the chosen mime type, if found in map
+ * if the stripped input matches their value.
+ * @param input Given Mime-Type, with or without parameters, will be checked without them
  * @param mime_map Map of all MIME Type/subtype combos known to the Server Configuration
- * @returns true if chosen_mime was found
- * @returns false if chosen_mime is not allowed
+ * @returns (HTTP_BAD_REQUEST) 400 if MIME-Type missing
+ * @returns 0 if given MIME-Type was found
+ * @returns (HTTP_INV_MEDIA) 415 if MIME-Type is not registered in Server Config 
  */
-bool allowedPatchMethod(const std::string &chosen_mime, std::string &mime_type, std::map<std::string, std::string> mime_map)
+int allowedPatchMethod(const std::string &input, std::map<std::string, std::string> mime_map)
 {
 	std::map<std::string, std::string>::const_iterator it;
+	size_t	end = 0;
+	std::string type;
+	
+	// Strip Mime Type of Parameters
+	end = input.find(';');
+	type = input;
+	if (end != std::string::npos)
+		type = input.substr(0, end);
+	if (type.empty())
+		return (HTTP_BAD_REQUEST);
 
 	// For each Mime Map Entry
 	for (it = mime_map.begin(); it != mime_map.end(); it++)
 	{
-		if (it->second == chosen_mime)
-		{
-			mime_type = it->first;
-			return (true);
-		}
+		if (it->second == type)
+			return (0);
 	}
-	return (false);
+	return (HTTP_INV_MEDIA);
 }
 
 /**
@@ -370,154 +321,38 @@ int	applyPatchOverwrite(size_t offset, HttpRequest &req, RequestContext &ctx)
 	return (decideWrite(req.getPath().c_str(), offset, OVERWRITE, req, ctx));
 }
 
-/**
- * @brief Checks which patching method is asked for and calls it
- * @param type Type of patch method
- * @param param Parameters of this type
- * @param req Request that specifies the file to overwrite
- * @param res Response, which should be prepared
- * @param ctx Context, how the file should be created
- */
-int	applyPatch(const std::string &type, const std::string &param, HttpRequest &req, RequestContext &ctx)
+int	PutPatchHandler::handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
-	std::string types[2] = {"p_append", "p_overwrite"};
-	size_t	offset;
-	bool	offset_error;
-	int i = 0;
-
-	// unused
-	(void)param;
-
-	// Get offset for patching (if error is encountered, keep going with 0 value)
-	offset = Atoi::atoiPatchOffset(req.getHeaders().get(HDR_PATCH_OFFSET).c_str(), offset_error);
-
-	// Get Case we have
-	for (; i < 2; i++)
-	{
-		if (types[i] == type)
-			break ;
-	}
-
-	// Execute Patch method
-	switch (i)
-	{
-		case 0:
-			return (applyPatchAppend(req, ctx));
-		case 1:
-			return (applyPatchOverwrite(offset, req, ctx));
-		default:
-			return (HTTP_INV_MEDIA);
-	}
+	(void)res;
+	return (decideWrite(req.getPath().c_str(), 0, PUT, req, ctx));
 }
 
-/**
- * @brief Set the Response Headers HDR_ACCEPT_PATCH field
- * @param res HttpResponse, whoose fields to set
- * @param mime_map Map of all allowed MIME types in the server config
- * 
- * Iterates through all Mime mappings in the ServerConfig,
- * checks if they are a registered Patch method,
- * then stores them into a string and sets the Header field to that string
- */
-void	responseSetAllowed(HttpResponse &res, const std::map<std::string, std::string> &mime_map)
-{
-	std::map<std::string, std::string>::const_iterator it_mime;
-	std::string types[2] = {"application/vnd.webserv.append", "application/vnd.webserv.overwrite"};
-	std::vector<std::string> allowed_list;
-	std::string allowed;
-
-	// For each Mime Map Entry
-	for (it_mime = mime_map.begin(); it_mime != mime_map.end(); it_mime++)
-	{
-		// Store it, if we found an allowed Patch Mime Type
-		if (it_mime->second == types[0] || it_mime->second == types[1])
-			allowed_list.push_back(it_mime->second);
-	}
-
-	// For all the registered allowed methods, make them into a string
-	for (std::vector<std::string>::const_iterator it_alow = allowed_list.begin(); \
-	it_alow != allowed_list.end(); it_alow++)
-	{
-		if (it_alow != allowed_list.begin())
-			allowed += ", ";
-		allowed += *it_alow;
-	}
-	res.headers.set(HDR_ACCEPT_PATCH, allowed);
-}
-
-/**
- * @brief Handles a Patch Request (augmenting an existing file)
- * @param req Request that specifies the file to overwrite
- * @param res Response, which should be prepared by this function
- * @param ctx Context, how the file should be created
- * @returns	HTTP_INV_MEDIA (415) if no valid Patch Method was specified in Header
- * @returns	HTTP_BAD_REQUEST (400) if Path Method is invalidly configured
- * @returns HTTP_NOT_FOUND (404) if target file is not existant
- * @returns HTTP_FORBIDDEN (403) if target file cannot be opened, but exists
- * @returns HTTP_INV_SERVER_ERR (500) if error while writing to file
- * 
- * Each Patch Requests must come with a specified method for patching data
- * This is specified in the Header 
- * (HDR_CONTENT_TYPE) Content-Type: application/vnd.webserv.<type>
- * where <type> can be "append" or "overwrite"
- * This method has to be a ServerConfig-allowed MIME-type
- * There should also be a Header for an offset, which is used in specific methods like overwrite
- * (HDR_PATCH_OFFSET) Parse-Offset: <number>
- * where <number> is the amount of bytes after which we write
- * 
- * The Patching will set an Http Exit Codein the response
- * It will also set a Header in the response:
- * (HDR_ACCEPT_PATCH) Accept-Patch: application/vnd.webserv.<type>, ...
- * Where it will give back all allowed patch MIME types in the specified format,
- * in a comma seperated string
- */
 int	PutPatchHandler::handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
-	std::string chosen_mime;
-	std::string type;
-	std::string subtype;
-	std::string parameters;
-	std::string short_type;
+	std::string	type;
+	int			status;
+	size_t		offset;
 
 	// Set Allowed MIME types for patching in response
 	responseSetAllowed(res, ctx.cfg->mime_mapping);
-
+	
 	// Should have methods specified on how to patch
 	if (!req.getHeaders().keyExists(HDR_CONTENT_TYPE))
 		return (HTTP_INV_MEDIA);
-
-	// Get patch methods
-	chosen_mime = req.getHeaders().get(HDR_CONTENT_TYPE);
-	if (!populatePatchMethod(chosen_mime, type, subtype, parameters))
-		return (HTTP_BAD_REQUEST);
 	
-	// Check if specified Mime type is allowed in config
-	if (!allowedPatchMethod((CSTM_PATCH + type + "/" + subtype), short_type, ctx.cfg->mime_mapping))
-		return (HTTP_INV_MEDIA);
+	// Check if specified Mime type is valid and allowed in config
+	type = req.getHeaders().get(HDR_CONTENT_TYPE);
+	status = allowedPatchMethod(type, ctx.cfg->mime_mapping);
+	if (status)
+		return (status);
+	
+	// Get offset for patching (if error is encountered, keep going with 0 value)
+	offset = Atoi::atoiPatchOffset(req.getHeaders().get(HDR_PATCH_OFFSET).c_str());
 
-	// Apply whatever method was specified to the file
-	return (applyPatch(short_type, parameters, req, ctx));
+	// Apply that method
+	if (type == MIME_PATCH_APPEND)
+		return (applyPatchAppend(req, ctx));
+	else if (type == MIME_PATCH_OVERWRITE)
+		return (applyPatchOverwrite(offset, req, ctx));
+	return (HTTP_INV_MEDIA);
 }
-
-// Patch Notes
-/**
- * If the entire patch document
-   cannot be successfully applied, then the server MUST NOT apply any of
-   the changes.
-
-   Accept-Patch response header (says which methods for patching are okay)
-   Should be given in the OPTIONS field of response for file that accepts PATCH method
-
-   Header Fiels:
-   Accept-Patch = "Accept-Patch" ":" 1#media-type
-   example:		Accept-Patch: application/example, text/example
-				Accept-Patch: text/example;charset=utf-8
-
-   Malformed patch document -> 400
-   Unsupported patch document -> 415
-   Unprocessable request -> 422 (Document type and format are valid, but server cant do request)
-   Resource not found -> 404 (file not found)
-   Conflicting state -> 409 (Structures assumed to exist, dont)
-   Conflicting modification -> 412 (Preconditions for Patching failed)
-
- */

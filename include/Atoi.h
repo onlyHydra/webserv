@@ -24,7 +24,7 @@ class Atoi
 	public:
 		static int atoi(const std::string &in);
 		static int	atoiHttpReq(const char *in, bool &error);
-		static size_t atoiPatchOffset(const char *in, bool &error);
+		static size_t atoiPatchOffset(const char *in);
 	private:
 		Atoi();
 		~Atoi();
