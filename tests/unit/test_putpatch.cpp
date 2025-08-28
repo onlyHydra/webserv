@@ -11,7 +11,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-void	checkFileContent(int length, const std::string &filename, const std::string &result)
+/**
+ * @brief Checks if a file has specified content
+ * @param length Amount of bytes the Content will be
+ * @param filename Name of the file to check
+ * @param goal The Content that the file should have
+ * @warning length and goal have to match 
+ */
+void	checkFileContent(int length, const std::string &filename, const std::string &goal)
 {
 		char buffer[length + 1];
 		std::ifstream in;
@@ -23,7 +30,7 @@ void	checkFileContent(int length, const std::string &filename, const std::string
 		in.read(buffer, length);
 		in.close();
 		std::string content(buffer);
-		REQUIRE(content == result);
+		REQUIRE(content == goal);
 }
 
 TEST_CASE("PUT_HANDLER", "[handler][put]")
@@ -37,42 +44,36 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 	bodyFile += "/DeleteMeBodyFile.txt";
 	SECTION("Normal test with Content from body")
 	{
-		{
-			// Put new file with some content
+		{	// Put new file with some content
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 			
 			std::remove(path.c_str());
 			std::string parse;
 			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FILE_CREATED);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
 			checkFileContent(7, path, "Abc123\n");
 			std::remove(path.c_str());
 		}
-		{
-			// Put new file with less content
+		{	// Put new file with less content
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 
 			std::remove(path.c_str());
 			std::string parse;
 			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FILE_CREATED);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
 			checkFileContent(1, path, "X");
 			std::remove(path.c_str());
 		}
-		{
-			// Put existing file with less content
+		{	// Put existing file with less content
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 			std::ofstream file;
 
 			file.open(path, std::ios::out | std::ios::binary);
@@ -84,19 +85,17 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::string parse;
 			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_OK);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_OK);
 			checkFileContent(1, path, "X");
 			std::remove(path.c_str());
 		}
 	}
 	SECTION("Normal test with Content from temp file")
 	{
-		{
-			// Put new file with some content which comes from temp body file
+		{	// Put new file with some content which comes from temp body file
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 			std::ofstream file;
 			
 			ctx.temp_file_used = true;
@@ -112,7 +111,7 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::string parse;
 			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FILE_CREATED);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
 			checkFileContent(7, path, "CONTENT");
 			std::remove(bodyFile.c_str());
 			std::remove(path.c_str());
@@ -120,12 +119,10 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 	}
 	SECTION("Invalid test for writing")
 	{
-		{
-			// Invalid PUT on target with wrong permissions
+		{	// Invalid PUT on target with wrong permissions
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 			std::string wrongAccess;
 			std::ofstream file;
 
@@ -140,18 +137,16 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::string parse;
 			parse = "PUT " + wrongAccess + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FORBIDDEN);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FORBIDDEN);
 			std::remove(wrongAccess.c_str());
 		}
 	}
 	SECTION("Invalid test for reading")
 	{
-		{
-			// Invalid PUT on target from temp file with wrong permissions
+		{	// Invalid PUT on target from temp file with wrong permissions
 			HttpRequest req;
 			HttpResponse res;
 			RequestContext ctx;
-			PutPatchHandler pat;
 			std::ofstream file;
 			
 			ctx.temp_file_used = true;
@@ -168,7 +163,7 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::string parse;
 			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle_put(req, res, ctx) == HTTP_FORBIDDEN);
+			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FORBIDDEN);
 			std::remove(bodyFile.c_str());
 			std::remove(path.c_str());
 		}

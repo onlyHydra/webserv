@@ -27,8 +27,6 @@ enum FileOpenMode
 {
 	PUT,
 	APPEND,
-	INSERT,
-	REPLACE,
 	OVERWRITE
 };
 
@@ -50,8 +48,8 @@ class PutPatchHandler : public Handler
 	public:
 		PutPatchHandler();
 		~PutPatchHandler();
-		int	handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
-		int	handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 	private:
 };
 

@@ -411,7 +411,7 @@ int	applyPatch(const std::string &type, const std::string &param, HttpRequest &r
 }
 
 /**
- * @brief Set the Headers HDR_ACCEPT_PATCH field
+ * @brief Set the Response Headers HDR_ACCEPT_PATCH field
  * @param res HttpResponse, whoose fields to set
  * @param mime_map Map of all allowed MIME types in the server config
  * 
