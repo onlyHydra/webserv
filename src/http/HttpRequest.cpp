@@ -13,9 +13,9 @@ date: 8/10/2025
  * Wether given Method is a valid one
  * @returns true if it is
  */
-bool	isMethodValid(const std::string &in)
+bool isMethodValid(const std::string &in)
 {
-	if (in == "GET" || in == "PUT" || in == "PATCH" || in == "DELETE" || \
+	if (in == "GET" || in == "PUT" || in == "PATCH" || in == "DELETE" ||
 		in == "POST")
 		return (true);
 	return (false);
@@ -25,7 +25,7 @@ bool	isMethodValid(const std::string &in)
  * Wether given Path is a valid one
  * @returns true if it is
  */
-bool	isPathValid(const std::string &in)
+bool isPathValid(const std::string &in)
 {
 	if (in[0] != '/')
 		return (false);
@@ -36,7 +36,7 @@ bool	isPathValid(const std::string &in)
  * Wether given Query is a valid one
  * @returns true if it is
  */
-bool	isQueryValid(const std::string &in)
+bool isQueryValid(const std::string &in)
 {
 	(void)in;
 	return (true);
@@ -46,10 +46,10 @@ bool	isQueryValid(const std::string &in)
  * Wether given Http Version is a valid one
  * @returns true if it is
  */
-bool	isHttpVerValid(const std::string &in)
+bool isHttpVerValid(const std::string &in)
 {
 	if (in.size() < 1)
-		return(false);
+		return (false);
 	return (true);
 }
 
@@ -57,10 +57,10 @@ bool	isHttpVerValid(const std::string &in)
  * Wether given Header Key is valid
  * @returns true if it is
  */
-bool	isKeyValid(const std::string &in)
+bool isKeyValid(const std::string &in)
 {
 	if (in.size() < 1)
-		return(false);
+		return (false);
 	return (true);
 }
 
@@ -68,7 +68,7 @@ bool	isKeyValid(const std::string &in)
  * Wether given Header Key is valid
  * @returns true if it is
  */
-bool	isValueValid(const std::string &in)
+bool isValueValid(const std::string &in)
 {
 	(void)in;
 	return (true);
@@ -95,27 +95,27 @@ HttpRequest::~HttpRequest()
 {
 }
 
-bool	HttpRequest::keepAlive(void) const
+bool HttpRequest::keepAlive(void) const
 {
 	return (this->conType);
 }
 
-bool	HttpRequest::headerAsSize(string k, size_t &v) const
+bool HttpRequest::headerAsSize(string k, size_t &v) const
 {
 	(void)k;
 	(void)v;
 	return (true);
 }
 
-string	HttpRequest::extension(void) const
+string HttpRequest::extension(void) const
 {
 	return ("");
 }
 
-int	HttpRequest::handleLineStart(const std::string &in)
+int HttpRequest::handleLineStart(const std::string &in)
 {
-	size_t	i = 0;
-	size_t	pos = 0;
+	size_t i = 0;
+	size_t pos = 0;
 
 	pos = in.find(' ', i);
 	if (pos == (size_t)-1)
@@ -164,12 +164,12 @@ int	HttpRequest::handleLineStart(const std::string &in)
 	return (0);
 }
 
-int	HttpRequest::handleLineHeader(const std::string &in)
+int HttpRequest::handleLineHeader(const std::string &in)
 {
-	size_t	i = 0;
-	size_t	pos = 0;
-	int		contLength = 0;
-	bool	atoiError;
+	size_t i = 0;
+	size_t pos = 0;
+	int contLength = 0;
+	bool atoiError;
 	std::string key;
 	std::string value;
 
@@ -211,7 +211,7 @@ int	HttpRequest::handleLineHeader(const std::string &in)
 	return (0);
 }
 
-int	HttpRequest::handleLineBody(const std::string &in)
+int HttpRequest::handleLineBody(const std::string &in)
 {
 	if (this->method != "POST" && this->method != "PUT" && this->method != "PATCH")
 		return (HTTP_BAD_REQUEST);
@@ -228,7 +228,7 @@ int	HttpRequest::handleLineBody(const std::string &in)
 	return (0);
 }
 
-int	HttpRequest::handleLine(const std::string &in)
+int HttpRequest::handleLine(const std::string &in)
 {
 	this->bytesHandledLast += in.size();
 	if (this->state == OVER || this->state == ERROR)
@@ -242,12 +242,12 @@ int	HttpRequest::handleLine(const std::string &in)
 	return (HTTP_BAD_REQUEST);
 }
 
-int	HttpRequest::handleInput(bool &activity)
+int HttpRequest::handleInput(bool &activity)
 {
-	int	i = 0;
+	int i = 0;
 	activity = false;
 	std::string line;
-	
+
 	if (this->buffer.size() == 0)
 		return (0);
 	if (this->state != BODY)
@@ -255,7 +255,7 @@ int	HttpRequest::handleInput(bool &activity)
 		for (; this->buffer[i]; i++)
 		{
 			if (this->buffer[i] == '\r' && this->buffer[i + 1] == '\n')
-				break ;
+				break;
 		}
 		if (!this->buffer[i])
 			return (0);
@@ -272,7 +272,7 @@ int	HttpRequest::handleInput(bool &activity)
 	return (this->handleLine(line));
 }
 
-bool	HttpRequest::parse(const char* data, size_t n)
+bool HttpRequest::parse(const char *data, size_t n)
 {
 	bool activity = true;
 	this->bytesHandledLast = 0;
@@ -299,70 +299,97 @@ bool	HttpRequest::parse(const char* data, size_t n)
 	return (true);
 }
 
-bool	HttpRequest::headersDone(void)
+bool HttpRequest::headersDone(void)
 {
 	if (this->state == BODY || this->state == OVER)
 		return (true);
 	return (false);
 }
 
-string	HttpRequest::getMethod(void) const
-{ return (this->method); }
+string HttpRequest::getMethod(void) const
+{
+	return (this->method);
+}
 
-string	HttpRequest::getUri(void) const
-{ return (this->uri); }
+string HttpRequest::getUri(void) const
+{
+	return (this->uri);
+}
 
-string	HttpRequest::getPath(void) const
-{ return (this->path); }
+string HttpRequest::getPath(void) const
+{
+	return (this->path);
+}
 
-string	HttpRequest::getQuery(void) const
-{ return (this->query); }
+string HttpRequest::getQuery(void) const
+{
+	return (this->query);
+}
 
-string	HttpRequest::getSessId(void) const
-{ return (this->session_id); }
+string HttpRequest::getSessId(void) const
+{
+	return (this->session_id);
+}
 
-size_t	HttpRequest::getBodyLength(void) const
-{ return (this->bodyLength); }
+size_t HttpRequest::getBodyLength(void) const
+{
+	return (this->bodyLength);
+}
 
-string	HttpRequest::getHttpVer(void) const
-{ return (this->http_version); }
+string HttpRequest::getHttpVer(void) const
+{
+	return (this->http_version);
+}
 
-string	HttpRequest::getBuffer(void) const
-{ return (this->buffer); }
+string HttpRequest::getBuffer(void) const
+{
+	return (this->buffer);
+}
 
-const Headers&	HttpRequest::getHeaders(void) const
-{ return (this->headers); }
+const Headers &HttpRequest::getHeaders(void) const
+{
+	return (this->headers);
+}
 
 CookieJar HttpRequest::getCookies(void) const
-{ return (this->cookies); }
+{
+	return (this->cookies);
+}
 
 vector<char> HttpRequest::getBody(void) const
-{ return (this->body); }
+{
+	return (this->body);
+}
 
 enum HttpRequestState HttpRequest::getState(void) const
-{ return (this->state); }
+{
+	return (this->state);
+}
 
 size_t HttpRequest::getTotalBytesRead(void) const
-{ return (this->totalBytesRead); }
+{
+	return (this->totalBytesRead);
+}
 
 size_t HttpRequest::getTotalBytesHandled(void) const
-{ return (this->totalBytesHandled); }
+{
+	return (this->totalBytesHandled);
+}
 
 size_t HttpRequest::getBytesHandledLast(void) const
-{ return (this->bytesHandledLast); }
+{
+	return (this->bytesHandledLast);
+}
 
 std::ostream &operator<<(std::ostream &out, const HttpRequest &target)
 {
-	out << \
-	target.getMethod() << " " << \
-	target.getPath() << " " << \
-	target.getHttpVer() << std::endl << \
-	"-----------" << std::endl;
-	out << target.getHeaders() << std::endl << \
-	"-----------" << std::endl;
+	out << target.getMethod() << " " << target.getPath() << " " << target.getHttpVer() << std::endl
+		<< "-----------" << std::endl;
+	out << target.getHeaders() << std::endl
+		<< "-----------" << std::endl;
 	out.write(target.getBody().data(), target.getBody().size());
-	out << std::endl << \
-	"-----------";
+	out << std::endl
+		<< "-----------";
 	return (out);
 }
 

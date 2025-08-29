@@ -6,78 +6,89 @@ date: 8/10/2025
 ------------------------------------------ */
 
 #include "CgiProcess.h"
-#include "VirtualServer.h"    // full definition of CgiSpec for the 3-arg overload
+#include "VirtualServer.h" // full definition of CgiSpec for the 3-arg overload
 
-#include <unistd.h>     // pipe, fork, dup2, execve, close
-#include <fcntl.h>      // fcntl
-#include <cstring>      // strerror
+#include <unistd.h> // pipe, fork, dup2, execve, close
+#include <fcntl.h>  // fcntl
+#include <cstring>  // strerror
 #include <cerrno>
 #include <stdexcept>
-#include <sys/wait.h>   // waitpid
-#include <signal.h>     // kill
-#include <sys/time.h>   // gettimeofday
+#include <sys/wait.h> // waitpid
+#include <signal.h>   // kill
+#include <sys/time.h> // gettimeofday
 #include <vector>
 
 // ---- tiny helpers ---------------------------------------------------------
 
-static inline int xclose(int& fd) {
-    if (fd >= 0) { ::close(fd); fd = -1; }
+static inline int xclose(int &fd)
+{
+    if (fd >= 0)
+    {
+        ::close(fd);
+        fd = -1;
+    }
     return 0;
 }
 
-unsigned long long CgiProcess::nowMs() {
-    struct timeval tv; ::gettimeofday(&tv, 0);
-    return (unsigned long long)tv.tv_sec * 1000ULL
-         + (unsigned long long)(tv.tv_usec / 1000ULL);
+unsigned long long CgiProcess::nowMs()
+{
+    struct timeval tv;
+    ::gettimeofday(&tv, 0);
+    return (unsigned long long)tv.tv_sec * 1000ULL + (unsigned long long)(tv.tv_usec / 1000ULL);
 }
 
-bool CgiProcess::setNonBlocking(int fd) {
+bool CgiProcess::setNonBlocking(int fd)
+{
     int fl = ::fcntl(fd, F_GETFL, 0);
-    if (fl < 0) return false;
+    if (fl < 0)
+        return false;
     return ::fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0;
 }
 
-bool CgiProcess::setCloseOnExec(int fd) {
+bool CgiProcess::setCloseOnExec(int fd)
+{
     int fl = ::fcntl(fd, F_GETFD, 0);
-    if (fl < 0) return false;
+    if (fl < 0)
+        return false;
     return ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC) == 0;
 }
 
 // ---- lifecycle ------------------------------------------------------------
 
 CgiProcess::CgiProcess()
-: _pid(-1), _in(-1), _out(-1), _deadline(0ULL) {}
+    : _pid(-1), _in(-1), _out(-1), _deadline(0ULL) {}
 
-CgiProcess::~CgiProcess() {
+CgiProcess::~CgiProcess()
+{
     terminate(); // safe if already reaped/closed
 }
 
 // High-level convenience overload: build argv/envp and delegate
-bool CgiProcess::spawn(const CgiSpec& spec,
-                       const std::string& scriptPath,
-                       const std::vector<std::string>& envv)
+bool CgiProcess::spawn(const CgiSpec &spec,
+                       const std::string &scriptPath,
+                       const std::vector<std::string> &envv)
 {
     // argv: [bin, script, NULL]
-    std::vector<char*> argvv;
-    argvv.push_back(const_cast<char*>(spec.bin.c_str()));
-    argvv.push_back(const_cast<char*>(scriptPath.c_str()));
+    std::vector<char *> argvv;
+    argvv.push_back(const_cast<char *>(spec.bin.c_str()));
+    argvv.push_back(const_cast<char *>(scriptPath.c_str()));
     argvv.push_back(0);
 
     // envp: ["K=V", ... , NULL]
-    std::vector<char*> envp;
+    std::vector<char *> envp;
     envp.reserve(envv.size() + 1);
     for (std::vector<std::string>::const_iterator it = envv.begin(); it != envv.end(); ++it)
-        envp.push_back(const_cast<char*>(it->c_str()));
+        envp.push_back(const_cast<char *>(it->c_str()));
     envp.push_back(0);
 
     return spawn(spec.bin, scriptPath, &argvv[0], &envp[0], spec.timeout_ms);
 }
 
 // Low-level spawn: do the actual fork/exec (stub for now; returns false)
-bool CgiProcess::spawn(const std::string& bin,
-                       const std::string& script,
-                       char* const* argv,
-                       char* const* envp,
+bool CgiProcess::spawn(const std::string &bin,
+                       const std::string &script,
+                       char *const *argv,
+                       char *const *envp,
                        int timeout_ms)
 {
     // Clean up any previous child
@@ -85,36 +96,47 @@ bool CgiProcess::spawn(const std::string& bin,
 
     // Establish deadline
     _deadline = (timeout_ms > 0)
-        ? (nowMs() + (unsigned long long)timeout_ms)
-        : 0ULL;
+                    ? (nowMs() + (unsigned long long)timeout_ms)
+                    : 0ULL;
 
-    int inPipe[2]  = { -1, -1 }; // parent writes -> child reads (stdin)
-    int outPipe[2] = { -1, -1 }; // child writes -> parent reads (stdout/stderr)
+    int inPipe[2] = {-1, -1};  // parent writes -> child reads (stdin)
+    int outPipe[2] = {-1, -1}; // child writes -> parent reads (stdout/stderr)
 
-    if (::pipe(inPipe)  < 0) { return false; }
-    if (::pipe(outPipe) < 0) {
-        ::close(inPipe[0]); ::close(inPipe[1]);
+    if (::pipe(inPipe) < 0)
+    {
+        return false;
+    }
+    if (::pipe(outPipe) < 0)
+    {
+        ::close(inPipe[0]);
+        ::close(inPipe[1]);
         return false;
     }
 
     pid_t pid = ::fork();
-    if (pid < 0) {
+    if (pid < 0)
+    {
         // fork failed
-        ::close(inPipe[0]);  ::close(inPipe[1]);
-        ::close(outPipe[0]); ::close(outPipe[1]);
+        ::close(inPipe[0]);
+        ::close(inPipe[1]);
+        ::close(outPipe[0]);
+        ::close(outPipe[1]);
         return false;
     }
 
-    if (pid == 0) {
+    if (pid == 0)
+    {
         // ---------------- child ----------------
         // close parent ends
         ::close(inPipe[1]);
         ::close(outPipe[0]);
 
         // stdin from inPipe[0]
-        if (::dup2(inPipe[0], STDIN_FILENO) < 0) _exit(126);
+        if (::dup2(inPipe[0], STDIN_FILENO) < 0)
+            _exit(126);
         // stdout to outPipe[1]
-        if (::dup2(outPipe[1], STDOUT_FILENO) < 0) _exit(126);
+        if (::dup2(outPipe[1], STDOUT_FILENO) < 0)
+            _exit(126);
         // stderr merged to stdout
         (void)::dup2(outPipe[1], STDERR_FILENO);
 
@@ -126,8 +148,8 @@ bool CgiProcess::spawn(const std::string& bin,
         // argv should look like: [bin, script, NULL]
         (void)script; // only to silence unused warning; script is already in argv
         ::execve(bin.c_str(),
-                 const_cast<char* const*>(argv),
-                 const_cast<char* const*>(envp));
+                 const_cast<char *const *>(argv),
+                 const_cast<char *const *>(envp));
         _exit(127); // exec failed
     }
 
@@ -138,7 +160,7 @@ bool CgiProcess::spawn(const std::string& bin,
     ::close(inPipe[0]);
     ::close(outPipe[1]);
 
-    _in  = inPipe[1];
+    _in = inPipe[1];
     _out = outPipe[0];
 
     // Make them non-blocking & close-on-exec
@@ -150,32 +172,47 @@ bool CgiProcess::spawn(const std::string& bin,
     return true;
 }
 
+void CgiProcess::closeIn() { 
+    (void)xclose(_in);
+}
+void CgiProcess::closeOut() { 
+    (void)xclose(_out); 
+}
+void CgiProcess::closeBoth()
+{
+    closeIn();
+    closeOut();
+}
 
-void CgiProcess::closeIn()  { (void)xclose(_in);  }
-void CgiProcess::closeOut() { (void)xclose(_out); }
-void CgiProcess::closeBoth(){ closeIn(); closeOut(); }
-
-int CgiProcess::waitNonBlocking(int* raw_status) {
-    if (_pid <= 0) return -1;
+int CgiProcess::waitNonBlocking(int *raw_status)
+{
+    if (_pid <= 0)
+        return -1;
 
     int st = 0;
     pid_t r = ::waitpid(_pid, &st, WNOHANG);
-    if (r == 0) {
+    if (r == 0)
+    {
         // still running
         return 0;
     }
-    if (r < 0) {
+    if (r < 0)
+    {
         // wait error; treat as error
         return -1;
     }
 
     // child reaped
-    if (raw_status) *raw_status = st;
+    if (raw_status)
+        *raw_status = st;
 
     int code = 0;
-    if (WIFEXITED(st)) {
+    if (WIFEXITED(st))
+    {
         code = WEXITSTATUS(st);
-    } else if (WIFSIGNALED(st)) {
+    }
+    else if (WIFSIGNALED(st))
+    {
         code = 128 + WTERMSIG(st); // common convention
     }
 
@@ -184,12 +221,15 @@ int CgiProcess::waitNonBlocking(int* raw_status) {
     return code > 0 ? code : 1; // >0 means finished; return a positive number
 }
 
-void CgiProcess::terminate() {
-    if (_pid > 0) {
+void CgiProcess::terminate()
+{
+    if (_pid > 0)
+    {
         // try to reap without killing first
         int dummy = 0;
         int rc = waitNonBlocking(&dummy);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             // still running → kill
             ::kill(_pid, SIGKILL);
             // reap
@@ -199,4 +239,3 @@ void CgiProcess::terminate() {
     }
     closeBoth();
 }
-

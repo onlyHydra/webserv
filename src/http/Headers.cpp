@@ -39,25 +39,25 @@ bool Headers::set(std::string key, std::string value)
 	return (true);
 }
 
-bool	Headers::mergeFrom(const Headers &src)
+bool Headers::mergeFrom(const Headers &src)
 {
 	std::map<std::string, std::string, CiLess>::const_iterator it;
 	bool okay = true;
 
-	for(it = src.getBegin(); okay && it != src.getEnd(); it++)
+	for (it = src.getBegin(); okay && it != src.getEnd(); it++)
 	{
 		okay = this->set(it->first, it->second);
 	}
 	return (okay);
 }
 
-void	Headers::erase(const std::string &key)
+void Headers::erase(const std::string &key)
 {
 	this->byteSize -= (key.size() + get(key).size());
 	this->map.erase(key);
 }
 
-void	Headers::clear(void)
+void Headers::clear(void)
 {
 	this->map.clear();
 	this->byteSize = 0;
@@ -67,7 +67,6 @@ std::map<std::string, std::string, CiLess>::const_iterator Headers::getBegin(voi
 {
 	return (this->map.begin());
 }
-
 
 std::map<std::string, std::string, CiLess>::const_iterator Headers::getEnd(void) const
 {
@@ -81,15 +80,15 @@ bool Headers::keyExists(std::string key) const
 	return (true);
 }
 
-void	Headers::show(std::ostream &out) const
+void Headers::show(std::ostream &out) const
 {
 	std::map<std::string, std::string, CiLess>::const_iterator it;
 
-	for(it = this->map.begin(); it != this->map.end(); it++)
+	for (it = this->map.begin(); it != this->map.end(); it++)
 	{
 		if (it != this->map.begin())
 			out << std::endl;
-		out << "["  << it->first << "] : [" << it->second << "]";
+		out << "[" << it->first << "] : [" << it->second << "]";
 	}
 }
 
@@ -98,7 +97,7 @@ std::string Headers::serialize(void) const
 	std::map<std::string, std::string, CiLess>::const_iterator it;
 	std::string out = "";
 
-	for(it = this->map.begin(); it != this->map.end(); it++)
+	for (it = this->map.begin(); it != this->map.end(); it++)
 	{
 		out.append(it->first);
 		out.append(": ");
@@ -113,21 +112,21 @@ std::string Headers::get(std::string key) const
 {
 	if (!this->keyExists(key))
 		return ("");
-	std::map<std::string,std::string , CiLess>::const_iterator it= this->map.find(key);
+	std::map<std::string, std::string, CiLess>::const_iterator it = this->map.find(key);
 	return (it->second);
 }
 
-int	Headers::getLength(void) const
+int Headers::getLength(void) const
 {
 	return (this->map.size());
 }
 
-bool	Headers::isEmpty(void) const
+bool Headers::isEmpty(void) const
 {
 	return (this->map.empty());
 }
 
-size_t	Headers::getByteSize(void) const
+size_t Headers::getByteSize(void) const
 {
 	return (this->byteSize);
 }

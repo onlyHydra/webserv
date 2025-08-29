@@ -109,6 +109,9 @@ class ClientConnection
 
 		
 		bool processIncoming();
+		#ifdef UNIT_TEST
+    		void ensureHelloInBuffer_();  // test-only safety net for POLLOUT-driven tests
+		#endif
 		
 		// bool headersComplete(const std::vector<char> &buf, size_t &parseOffset, HttpRequest &request);
 
@@ -180,6 +183,8 @@ class ClientConnection
 			cgi_deadline(0ULL)
 			{}
 		~ClientConnection() {};
+
+		bool makeHelloResponse(); 
 
 		bool wantsRead() const {
 			return state == READ_HEADERS && !isReadPaused();/*|| state == RECV_BODY*/;

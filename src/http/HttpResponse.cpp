@@ -4,33 +4,42 @@
 author: undefined
 date: 8/10/2025
 ------------------------------------------ */
-
 #include "HttpResponse.h"
-#include <iostream>
+#include <sstream>
 
 HttpResponse::HttpResponse()
-{
-	this->http_version = "";
-	this->session_id = "";
-	this->bodyLength = 0;
+: http_version("HTTP/1.1")
+, session_id("")
+, bodyLength(0)
+, headers()
+, cookies()
+, body()
+, status(200)
+, reason("OK")
+{}
+
+HttpResponse::~HttpResponse() {}
+
+void HttpResponse::setStatus(int code, const std::string &r) {
+    status = code;
+    reason = r;
 }
 
-HttpResponse::~HttpResponse()
-{
+int HttpResponse::getStatusCode() const { return status; }
+const std::string& HttpResponse::getReason() const { return reason; }
+
+void HttpResponse::clearBody() {
+    body.clear();
+    bodyLength = 0;
+    headers.set(std::string("Content-Length"), std::string("0"));
 }
 
-std::ostream &operator<<(std::ostream &out, const HttpResponse &target)
-{
-	out << \
-	target.http_version << " " << \
-	target.session_id << " " << \
-	target.bodyLength << std::endl << \
-	"-----------" << std::endl;
-	out << target.headers << std::endl << \
-	"-----------" << std::endl;
-	out.write(target.body.data(), target.body.size());
-	out << std::endl << \
-	"-----------";
-	return (out);
+std::ostream &operator<<(std::ostream &out, const HttpResponse &r) {
+    out << r.http_version << " " << r.status << " " << r.reason << "\r\n";
+    out << r.headers.serialize();
+    out << "(bodyLength=" << r.bodyLength << ")\n";
+    return out;
 }
+
+
 

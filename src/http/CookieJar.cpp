@@ -19,8 +19,8 @@ CookieJar::~CookieJar()
 	this->cookies.clear();
 }
 
-void CookieJar::setCookieHeaders(\
-	Headers &h, string key, string value, string path, \
+void CookieJar::setCookieHeaders(
+	Headers &h, string key, string value, string path,
 	int maxAge, bool httpOnly, bool secure, string sameSite)
 {
 	(void)h;
@@ -32,7 +32,7 @@ void CookieJar::setCookieHeaders(\
 	this->set(key, value);
 }
 
-void	CookieJar::parseFrom(const Headers &target)
+void CookieJar::parseFrom(const Headers &target)
 {
 	map<string, string, CiLess>::const_iterator it;
 	map<string, string, CiLess>::const_iterator end;
@@ -47,12 +47,12 @@ void CookieJar::set(string key, string value)
 	this->cookies[key] = value;
 }
 
-void	CookieJar::erase(const string &key)
+void CookieJar::erase(const string &key)
 {
 	this->cookies.erase(key);
 }
 
-void	CookieJar::clear(void)
+void CookieJar::clear(void)
 {
 	this->cookies.clear();
 }
@@ -74,29 +74,29 @@ bool CookieJar::keyExists(string key) const
 	return (true);
 }
 
-void	CookieJar::show(ostream &out) const
+void CookieJar::show(ostream &out) const
 {
 	map<string, string, CiLess>::const_iterator it;
 
-	for(it = this->cookies.begin(); it != this->cookies.end(); it++)
+	for (it = this->cookies.begin(); it != this->cookies.end(); it++)
 	{
 		if (it != this->cookies.begin())
 			out << endl;
-		out << "["  << it->first << "] : [" << it->second << "]";
+		out << "[" << it->first << "] : [" << it->second << "]";
 	}
 }
 
-int	CookieJar::getLength(void) const
+int CookieJar::getLength(void) const
 {
 	int count = 0;
 	map<string, string, CiLess>::const_iterator it;
 
-	for(it = this->getBegin(); it != this->getEnd(); it++)
+	for (it = this->getBegin(); it != this->getEnd(); it++)
 		count++;
 	return (count);
 }
 
-bool	CookieJar::isEmpty(void) const
+bool CookieJar::isEmpty(void) const
 {
 	return (this->cookies.empty());
 }
