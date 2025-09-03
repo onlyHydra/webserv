@@ -34,7 +34,7 @@ TEST_CASE("Slowloris: partial headers then FIN => no response", "[server][slowlo
 	if (loop.joinable())
 		loop.join();
 
-	REQUIRE(resp.empty()); // server should not reply without complete headers
+	REQUIRE(resp.find(" 408 ") != std::string::npos);
 }
 
 TEST_CASE("Headers fragmented into tiny writes => still responds", "[server][fragment]")
