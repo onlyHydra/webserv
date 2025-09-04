@@ -5,22 +5,30 @@ Author: undefined
 Date: 8/10/2025
 ------------------------------------------ */
 
-#ifndef SERVERPIPELINE_H
-#define SERVERPIPELINE_H
+// include/ServerPipeline.h
+#ifndef SERVER_PIPELINE_H
+#define SERVER_PIPELINE_H
 
-#include <string>
+#include "HttpRequest.h"
+#include "HttpResponse.h"
+#include "RoutePlan.h"
+#include "RouteResolver.h"
+#include "Router.h"
+#include "ServerConfig.h"
 
-class ServerConfig;
-class HttpRequest;
-class HttpResponse;
-struct RouteDecision;
+// Forward declare to avoid heavy include / circular deps
+class CGIStreamer;
 
 class ServerPipeline
 {
 public:
-	static bool processRequest(const ServerConfig &cfg, int vs_indx, HttpRequest &req, HttpResponse &res, RouteDecision &decision);
-
-private:
+    static bool processRequest(const ServerConfig &cfg,
+                               int vs_indx,
+                               HttpRequest &req,
+                               HttpResponse &res,
+                               RouteDecision &decision,
+                               CGIStreamer* cgi_streamer); // <-- 6th param
 };
 
-#endif // SERVERPIPELINE_H
+#endif // SERVER_PIPELINE_H
+

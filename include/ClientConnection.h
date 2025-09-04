@@ -30,19 +30,33 @@ class ClientConnection
 		bool wantsRead();
 		bool isReadPaused();
 		bool hasPendingWrite();
-		int fd() const { return io.getFD(); }
+		int fd() const { 
+			return io.getFD(); 
+		}
 
-		CGIStreamer &getCGIStreamer() { return cgi; }
+		CGIStreamer &getCGIStreamer() { 
+			return cgi; 
+		}
 
-		Phase getState() { return state; }
-		FlowControl &getFlow() { return io.getFlow(); }
-		void resetDeadline(int ms){	dl.reset(now_cached_ms, ms);};
+		Phase getState() { 
+			return state; 
+		}
+		FlowControl &getFlow() { 
+			return io.getFlow(); 
+		}
+		void resetDeadline(int ms){	
+			dl.reset(now_cached_ms, ms);
+		};
 
-		bool isReadyToClose() { return ready_to_close; }
+		bool isReadyToClose() { 
+			return ready_to_close; 
+		}
 
 		void close();
 
-		int getFD() {return io.getFD();}
+		int getFD() {
+			return io.getFD();
+		}
 		
 	private:
 		void parseHeaders();

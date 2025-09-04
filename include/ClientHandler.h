@@ -19,11 +19,15 @@ class ClientHandler : public EventLoop::Handler {
 		ClientHandler(EventLoop& loop, ClientConnection* c)
 		: eventLoop(loop), clientConnection(c) {}
 	
-		virtual ~ClientHandler() { clientConnection = 0; }
+		virtual ~ClientHandler() { 
+			clientConnection = 0; 
+		}
 	
 		virtual void onEvent(int fd, short revents);
 
-		ClientConnection* conn() const { return clientConnection; } 
+		ClientConnection* conn() const { 
+			return clientConnection; 
+		} 
 	
 	private:
 		EventLoop&        eventLoop;

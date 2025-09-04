@@ -12,7 +12,10 @@ class ContentLenghtReader : public IBodyReader
 
 	std::size_t consume(const char *data, std::size_t len)
 	{
-		if (done || need == got) { done = true; return 0; }
+		if (done || need == got) { 
+			done = true; 
+			return 0; 
+		}
 		const std::size_t remaining = need - got;
 		const std::size_t take = (len < remaining) ? len : remaining;
 
@@ -23,8 +26,12 @@ class ContentLenghtReader : public IBodyReader
 		return take;
 	}
 
-	bool complete() const { return done; }
-	std::size_t bytes_received() const { return got; }
+	bool complete() const { 
+		return done; 
+	}
+	std::size_t bytes_received() const { 
+		return got; 
+	}
 
 private:
 	std::size_t need;  // expected total bytes

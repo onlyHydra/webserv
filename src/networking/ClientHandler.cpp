@@ -101,13 +101,13 @@ void ClientHandler::updateInterests()
 
 	// ---- CGI stdout readable? ----
 	const int cgiOut = clientConnection->getCGIStreamer().cgiStdoutFD();
-	if (cgiOut >= 0)
-	{
+	if (cgiOut >= 0) {
 		if (eventLoop.indexOfFD(cgiOut) < 0)
 			eventLoop.addFD(cgiOut, POLLIN, this);
 		else
 			eventLoop.modFD(cgiOut, POLLIN);
 	}
+
 
 	// ---- CGI stdin writable? ----
 	const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();

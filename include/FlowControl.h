@@ -15,14 +15,26 @@ struct FlowControl
     FlowControl(size_t high = 256u * 1024u, size_t low = 64u * 1024u)
         : readPaused(false), writeLingerArmed(false), high_water(high), low_water(low) {}
 
-    bool shouldPauseRead(size_t outSize) const { return outSize >= high_water; }
-    bool shouldResumeRead(size_t remaining) const { return remaining <= low_water; }
+    bool shouldPauseRead(size_t outSize) const { 
+        return outSize >= high_water; 
+    }
+    bool shouldResumeRead(size_t remaining) const { 
+        return remaining <= low_water; 
+    }
 
-    void setReadPaused(bool v) { readPaused = v; }
-    bool isReadPaused() const { return readPaused; }
+    void setReadPaused(bool v) { 
+        readPaused = v; 
+    }
+    bool isReadPaused() const { 
+        return readPaused; 
+    }
 
-    void setWriteLinger(bool v) { writeLingerArmed = v; }
-    bool getWriteLinger() const { return writeLingerArmed; }
+    void setWriteLinger(bool v) { 
+        writeLingerArmed = v; 
+    }
+    bool getWriteLinger() const { 
+        return writeLingerArmed; 
+    }
 };
 
 #endif // FLOWCONTROL_H

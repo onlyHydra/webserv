@@ -3,6 +3,7 @@
 #include "RequestContext.h"
 #include "ResponseFactory.h"
 #include "ChunkedReader.h"
+#include "CGIStreamer.h"
 #include "FileBodyReader.h"
 #include "ContentLenghtReader.h"
 #include "ServerPipeline.h"
@@ -81,73 +82,97 @@ bool ClientConnection::wantsRead()
 
 void ClientConnection::onTick(unsigned long long now_ms)
 {
-	const std::size_t outbytes = io.getChainBuf().getByteSize();
-	now_cached_ms = now_ms;
+    now_cached_ms = now_ms;
 
-	if (io.getFlow().shouldPauseRead(outbytes))
-		io.getFlow().setReadPaused(true);
-	if (io.getFlow().shouldResumeRead(outbytes))
-		io.getFlow().setReadPaused(false);
+    // 0) Pull any CGI bytes into the socket buffer BEFORE we attempt a write.
+    //    (no-op if CGI inactive)
+    if (cgi.hasOutBytes())
+        (void)cgi.takeOutBytes(io.getChainBuf(), 128u * 1024u);
 
-	(void)io.nb_write();
+    // 1) Flow control based on queued output
+    const std::size_t outbytes = io.getChainBuf().getByteSize();
+    if (io.getFlow().shouldPauseRead(outbytes))
+        io.getFlow().setReadPaused(true);
+    if (io.getFlow().shouldResumeRead(outbytes))
+        io.getFlow().setReadPaused(false);
 
-	if (dl.expired(now_ms) && state != PH_CLOSE)
-	{
-		if (state == PH_READ_HEADERS || state == PH_READ_BODY || state == PH_PRECHECK || state == PH_ROUTE_SELECT)
-		{
-			fail(408, "Request Timeout");
-		}
-		else
-		{
-			state = PH_CLOSE;
-		}
-		return;
-	}
+    // 2) Try to flush whatever is queued (static or CGI)
+    (void)io.nb_write();
 
-	if (!io.getFlow().isReadPaused() && (state == PH_READ_HEADERS || state == PH_READ_BODY))
-		if(io.nb_read(32 * 1024) == 0 ){
-			state = PH_CLOSE;
-			return;
-		}
+    // 3) Deadline enforcement
+    if (dl.expired(now_ms) && state != PH_CLOSE)
+    {
+        if (state == PH_READ_HEADERS || state == PH_READ_BODY ||
+            state == PH_PRECHECK     || state == PH_ROUTE_SELECT)
+        {
+            fail(408, "Request Timeout");
+        }
+        else
+        {
+            state = PH_CLOSE;
+        }
+        return;
+    }
 
-	switch (state)
-	{
-	case PH_READ_HEADERS:
-		parseHeaders();
-		break;
-	case PH_ROUTE_SELECT:
-		selectRouteOnce();
-		break;
-	case PH_PRECHECK:
-		runPreflight();
-		break;
-	case PH_READ_BODY:
-		readBody();
-		break;
-	case PH_ROUTE:
-		routeAndBuild();
-		break;
-	case PH_WRITE:
-		finishWriteOrNext();
-		break;
+    // 4) Non-blocking read only in header/body phases and when not paused
+    if (!io.getFlow().isReadPaused() &&
+        (state == PH_READ_HEADERS || state == PH_READ_BODY))
+    {
+        ssize_t r = io.nb_read(32 * 1024);
+        if (r == 0)
+        {
+            // Peer performed an orderly shutdown (EOF). We stop reading;
+            // writer side (PH_WRITE) will flush anything left, then close.
+            state = PH_CLOSE;
+            return;
+        }
+        // r < 0 => EAGAIN/other; ignore here (no errno branching).
+    }
 
-	case PH_CLOSE:
-		io.getFlow().setReadPaused(true);
+    // 5) Drive the HTTP/CGI state machine
+    switch (state)
+    {
+    case PH_READ_HEADERS:
+        parseHeaders();
+        break;
 
-		(void)io.nb_write();
-		if (io.getChainBuf().getByteSize() != 0)
+    case PH_ROUTE_SELECT:
+        selectRouteOnce();
+        break;
 
-			if (body)
-			{
-				delete body;
-				body = 0;
-			}
-		req.cleanupBodyFile();
-		ready_to_close = true;
-		// server->releaseConnection(this);
-		return;
-	}
+    case PH_PRECHECK:
+        runPreflight();
+        break;
+
+    case PH_READ_BODY:
+        readBody();
+        break;
+
+    case PH_ROUTE:
+        routeAndBuild();
+        break;
+
+    case PH_WRITE:
+        // May be static/proxy/put/patch response OR CGI streaming in progress.
+        finishWriteOrNext();
+        break;
+
+    case PH_CLOSE:
+        // Stop reading; keep trying to flush any remaining bytes.
+        io.getFlow().setReadPaused(true);
+        (void)io.nb_write();
+
+        if (io.getChainBuf().getByteSize() == 0)
+        {
+            if (body) { delete body; body = 0; }
+            req.cleanupBodyFile();
+            ready_to_close = true;
+        }
+        return;
+    }
 }
+
+
 
 void ClientConnection::parseHeaders()
 {
@@ -364,15 +389,36 @@ void ClientConnection::readBody()
 
 void ClientConnection::routeAndBuild()
 {
-    // Build the response for the current request
-    (void)ServerPipeline::processRequest(server->getConfig(), vs_idx, req, res, *ctx);
+    // Ask the pipeline to handle the request.
+    // IMPORTANT: pass &cgi so a CGI handler can start asynchronous streaming.
+    bool done = ServerPipeline::processRequest(
+        server->getConfig(),  // cfg
+        vs_idx,               // virtual server index
+        req,                  // request
+        res,                  // response (to be filled if done == true)
+        *ctx,                 // routing decision
+        &cgi                  // <-- CGIStreamer owned by this connection
+    );
 
-    // Decide keep-alive vs close (HTTP/1.1 keeps alive by default unless client asks to close)
+    if (!done) {
+        // An async handler (CGI) has started. Do NOT serialize res now.
+        // The EventLoop/ClientHandler will pump cgi pipes and move bytes
+        // into io.getChainBuf() as they arrive.
+        should_close = true;        // conservative; you can relax later
+        state = PH_WRITE;
+        resetDeadline(WR_TIMEOUT_MS);
+		 // NEW: make sure EventLoop is watching CGI pipes
+    	
+        return;
+    }
+
+    // Synchronous path (static/proxy/put/patch):
+    // Decide keep-alive vs close (HTTP/1.1 keeps alive unless client asks to close)
     const std::string connHdr = req.getHeaders().get("Connection");
     should_close = (req.getHttpVer() == "HTTP/1.0") ||
                    (connHdr == "close" || connHdr == "Close");
 
-    // Advertise the chosen policy in the response
+    // Reflect policy in the response
     if (should_close)
         res.headers.set("Connection", "close");
     else
@@ -392,37 +438,38 @@ void ClientConnection::routeAndBuild()
 }
 
 
+
 void ClientConnection::finishWriteOrNext()
 {
-	if (io.getChainBuf().getByteSize() != 0)
-		return;
+    if (io.getChainBuf().getByteSize() != 0)
+        return;
 
-	if (should_close)
-	{
-		state = PH_CLOSE;
-		return;
-	}
+    // Still streaming CGI? stay in PH_WRITE
+    if (cgi.cgiStdoutFD() >= 0 || cgi.hasOutBytes())
+        return;
 
-	// Reset req now
-	hdr_bytes = 0;
-	max_body_bytes = 0;
-	if (body)
-	{
-		delete body;
-		body = 0;
-	}
-	plan = RoutePlan();
-	ctx->reset();
-	req = HttpRequest();
-	res = HttpResponse();
-	route_selected = false;
+    if (should_close) { state = PH_CLOSE; return; }
 
-	state = PH_READ_HEADERS;
-	resetDeadline(IDLE_TIMEOUT_MS);
-	if (io.getInputRing().readAvail() > 0){
-		parseHeaders();
-	}
+    // Reset for next request
+    hdr_bytes = 0;
+    max_body_bytes = 0;
+    if (body) { delete body; body = 0; }
+    plan = RoutePlan();
+    ctx->reset();             // your RouteDecision* reset
+    req = HttpRequest();
+    res = HttpResponse();
+    route_selected = false;
+
+    state = PH_READ_HEADERS;
+    resetDeadline(IDLE_TIMEOUT_MS);
+    if (io.getInputRing().readAvail() > 0) parseHeaders();
 }
+
+
+
+
+
+
 
 void ClientConnection::fail(int code, const char *reason)
 {

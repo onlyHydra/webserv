@@ -55,6 +55,8 @@ public:
     // Deadline helpers (you can compare nowMs() with deadlineMs())
     static unsigned long long nowMs();
     unsigned long long        deadlineMs() const { return _deadline; }
+   
+
 
 private:
     pid_t              _pid;

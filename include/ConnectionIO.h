@@ -42,11 +42,21 @@ public:
 
 	void close() { socket.reset(); }
 
-	int getFD() const { return socket.get(); }
-	IoRing &getInputRing()  { return in; }
-	ChainBuf &getChainBuf() { return out; }
-	FlowControl &getFlow() { return flow; }
-	const FlowControl &getFlow() const { return flow; }
+	int getFD() const { 
+		return socket.get(); 
+	}
+	IoRing &getInputRing()  { 
+		return in; 
+	}
+	ChainBuf &getChainBuf() { 
+		return out; 
+	}
+	FlowControl &getFlow() { 
+		return flow; 
+	}
+	const FlowControl &getFlow() const { 
+		return flow; 
+	}
 
 	ssize_t nb_read(std::size_t max_bytes);
 	ssize_t nb_write();
