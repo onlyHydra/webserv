@@ -298,9 +298,9 @@ int allowedPatchMethod(const std::string &input, std::map<std::string, std::stri
  * @param ctx Context about Request
  * @returns Http Exit Code
  */
-int	applyPatchAppend(HttpRequest &req, RequestContext &ctx)
+int	applyPatchAppend(const char *path, HttpRequest &req, RequestContext &ctx)
 {
-	return (decideWrite(req.getPath().c_str(), 0, APPEND, req, ctx));
+	return (decideWrite(path, 0, APPEND, req, ctx));
 }
 
 /**
@@ -316,18 +316,18 @@ int	applyPatchAppend(HttpRequest &req, RequestContext &ctx)
  * @param ctx Context about Request
  * @returns Http Exit Code
  */
-int	applyPatchOverwrite(size_t offset, HttpRequest &req, RequestContext &ctx)
+int	applyPatchOverwrite(const char *path, size_t offset, HttpRequest &req, RequestContext &ctx)
 {
-	return (decideWrite(req.getPath().c_str(), offset, OVERWRITE, req, ctx));
+	return (decideWrite(path, offset, OVERWRITE, req, ctx));
 }
 
-int	PutPatchHandler::handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+int	PutPatchHandler::handle_put(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
 	(void)res;
-	return (decideWrite(req.getPath().c_str(), 0, PUT, req, ctx));
+	return (decideWrite(path, 0, PUT, req, ctx));
 }
 
-int	PutPatchHandler::handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+int	PutPatchHandler::handle_patch(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
 	std::string	type;
 	int			status;
@@ -351,8 +351,24 @@ int	PutPatchHandler::handle_patch(HttpRequest &req, HttpResponse &res, RequestCo
 
 	// Apply that method
 	if (type == MIME_PATCH_APPEND)
-		return (applyPatchAppend(req, ctx));
+		return (applyPatchAppend(path, req, ctx));
 	else if (type == MIME_PATCH_OVERWRITE)
-		return (applyPatchOverwrite(offset, req, ctx));
+		return (applyPatchOverwrite(path, offset, req, ctx));
 	return (HTTP_INV_MEDIA);
+}
+
+
+bool PutPatchHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+{
+	std::string pathStr = ctx.effective_root + ctx.rel_path;
+	const char *path = pathStr.c_str();
+
+	errno = HTTP_OK;
+	if (req.getMethod() == "PUT")
+		errno = handle_put(path, req, res, ctx);
+	else
+		errno = handle_patch(path, req, res, ctx);
+	if (errno == HTTP_OK || errno == HTTP_FILE_CREATED)
+		return (true);
+	return (false);
 }

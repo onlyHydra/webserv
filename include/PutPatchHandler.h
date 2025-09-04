@@ -10,6 +10,7 @@ Date: 8/16/2025
 
 # include <fcntl.h>
 # include <unistd.h>
+# include <errno.h>
 # include <iostream>
 # include <fstream>
 # include <vector>
@@ -70,6 +71,7 @@ class PutPatchHandler : public Handler
 		
 		/**
 		 * @brief Creates or overwrites a file
+		 * @param path Path of the file to operate on
 		 * @param req Request that specifies the file to overwrite
 		 * @param res UNUSED Http Response, needs to be here to match the (...)::handle() prototype
 		 * @param ctx Context, how the file should be created
@@ -85,10 +87,11 @@ class PutPatchHandler : public Handler
 		 * Returns different codes based on if file already existed and was modified
 		 * or if the file was created completely new
 		 */
-		static int	handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_put(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 
 		/**
 		 * @brief Handles a Patch Request (augmenting an existing file)
+		 * @param path Path of file to operate on
 		 * @param req Request that specifies the file to overwrite
 		 * @param res Response, which will get some Header Data set from this function
 		 * @param ctx Context, how the file should be created
@@ -113,7 +116,22 @@ class PutPatchHandler : public Handler
 		 * Where it will give back all allowed patch MIME types in the specified format,
 		 * in a comma seperated string
 		 */
-		static int	handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_patch(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+
+		/**
+		 * @brief Caller function for put and patch with the PutPatch Handler
+		 * 
+		 * Chooses the file of the path to operat on by using the contexts fields:
+		 * ctx.effective_root + ctx.rel_path, in order to get the whole path of our target file
+		 * @param req Request that specifies the file to overwrite
+		 * @param res Response, which will get some Header Data set from this function
+		 * @param ctx Context, how the file should be created		 
+		 * @returns HTTP_FORBIDDEN (403) if target file cannot be opened, but exists
+		 * @returns HTTP_NOT_FOUND (404) if target file is not existant
+		 * @returns	HTTP_INV_MEDIA (415) if no valid Patch Method was specified in Header
+		 * @returns HTTP_INV_SERVER_ERR (500) if error while writing to file
+		 */
+		bool	handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 };
 
 #endif // PUTPATCHHANDLER_H

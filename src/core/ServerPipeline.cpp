@@ -66,27 +66,6 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRe
 		// setError(res, dec.status, toReason(dec.status));
 		return true;
 	}
-	switch (decision.kind)
-	{
-	case RouteDecision::HK_STATIC:
-		h = new StaticHandler();
-		break;
-	case RouteDecision::HK_CGI:
-		h = new CgiHandler();
-		break;
-	case RouteDecision::HK_PROXY:
-		h = new ProxyHandler();
-		break;
-	case RouteDecision::HK_PUTPATCH:
-		h = new PutPatchHandler();
-		break;
-	case RouteDecision::HK_ERROR:
-		return false;
-		break;
-	default:
-		// setError(res, dec.status, toReason(dec.status));
-		return true;
-	}
 
 	const bool done = h->handle(req, res, ctx); // true => response complete
 	delete h;
