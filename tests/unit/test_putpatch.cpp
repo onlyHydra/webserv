@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 /**
- * @brief Checks if a file has specified content
+ * @brief Checks if a file has specified contents
  * @param length Amount of bytes the Content will be
  * @param filename Name of the file to check
  * @param goal The Content that the file should have
