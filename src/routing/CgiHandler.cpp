@@ -4,6 +4,7 @@
 author: undefined
 date: 8/10/2025
 ------------------------------------------ */
+#include <stdio.h>   // for fprintf, stderr
 
 #include "CgiHandler.h"
 #include "CgiRegistry.h"
@@ -15,10 +16,18 @@ date: 8/10/2025
 #include "HttpResponse.h"
 #include "Headers.h"
 #include "HEADER_ENTRIES.h"
+#include "ClientHandler.h"
+
+#include <sys/time.h>
+#include <poll.h>
+
 #include <sstream>
 #include <vector>
 #include <string>
 #include <cstring>
+
+#include <cerrno>
+#include <cstdio>   // for fprintf, stderr
 
 // small helpers (already in your TU; keep one copy)
 #ifdef KEEP_HOST_HELPER
@@ -200,56 +209,86 @@ CgiHandler::~CgiHandler() {}
 
 bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
-    // Resolve CGI spec
+    // 0) Resolve CGI spec (per-location overrides global)
     CgiRegistry reg;
     const std::map<std::string, CgiSpec>* locMap = ctx.loc ? &ctx.loc->cgi_by_ext : 0;
     const std::map<std::string, CgiSpec>* defMap = ctx.cfg ? &ctx.cfg->cgi_defaults : 0;
     reg.setSources(locMap, defMap);
+
     const CgiSpec* spec = reg.findByExtension(ctx.cgi_ext);
-    if (!spec) return false;
+    if (!spec) return false; // not a CGI target; let other handlers try
 
     if (!ctx.cgi_streamer) {
         res = ResponseFactory::makeText(500, "CGI unavailable\n", "Internal Server Error", true);
         return true;
     }
 
-    // Build env
+    // 1) Build the CGI environment
     std::vector<std::string> envv;
     if (buildEnv(req, *ctx.vs, envv) <= 0) {
         res = ResponseFactory::makeText(500, "CGI env build failed\n", "Internal Server Error", true);
         return true;
     }
 
-    // Base root
+    // 2) Compute script filename (prefer effective_root, else loc/server root)
     const std::string& baseRoot =
         !ctx.effective_root.empty() ? ctx.effective_root
         : (ctx.loc && !ctx.loc->root.empty() ? ctx.loc->root : ctx.vs->root);
 
     std::string root = baseRoot;
-    if (!root.empty() && root[root.size()-1] == '/') root.erase(root.size()-1);
+    if (!root.empty() && root[root.size() - 1] == '/') root.erase(root.size() - 1);
 
-    // IMPORTANT: use FULL request path so "/cgi/..." is preserved
+    // IMPORTANT: use the FULL request path so "/cgi/..." is preserved
     std::string urlPath = req.getPath();                 // e.g. "/cgi/hello.py"
     if (urlPath.empty() || urlPath[0] != '/') urlPath = "/" + urlPath;
 
     const std::string scriptPath = root + urlPath;       // "./www" + "/cgi/hello.py"
 
-    // Start CGI
+    // ---- DEBUG + EARLY GUARD ----
+    {
+        std::ostringstream dbg;
+        dbg << "[CGI] url=" << req.getPath()
+            << " root=" << root
+            << " scriptPath=" << scriptPath;
+        std::string line = dbg.str();
+        ::write(2, line.c_str(), line.size());
+        ::write(2, "\n", 1);
+
+        if (::access(scriptPath.c_str(), R_OK) != 0) {
+            int se = errno;
+            std::ostringstream msg;
+            msg << "CGI script not found at: " << scriptPath
+                << " (errno " << se << ": " << std::strerror(se) << ")\n";
+            res = ResponseFactory::makeText(404, msg.str(), "Not Found", true);
+            return true;
+        }
+    }
+    // ------------------------------
+
+    // 3) Start CGI asynchronously
     if (!ctx.cgi_streamer->beginCgi(*spec, scriptPath, envv)) {
         res = ResponseFactory::makeText(500, "CGI spawn failed\n", "Internal Server Error", true);
         return true;
     }
 
-    // If no body, close the child's stdin so it doesn't wait forever
+    // >>> ADD THIS RIGHT HERE: print the pipe FDs we will poll <<<
+    {
+        int in  = ctx.cgi_streamer->cgiStdinFD();
+        int out = ctx.cgi_streamer->cgiStdoutFD();
+        std::fprintf(stderr, "[CGI] begin ok inFD=%d outFD=%d\n", in, out);
+    }
+    // <<<----------------------------------------------------------------->>>
+
+    // 4) If there is no request body to feed, close CGI stdin now so the script
+    //    doesn't block waiting for EOF (typical for GET/HEAD).
     const bool has_body = (req.getBodyLength() > 0) || ctx.temp_file_used;
     if (!has_body && req.getMethod() != "POST") {
-        ctx.cgi_streamer->closeStdin();  // this must set its fd to -1 internally
+        ctx.cgi_streamer->closeStdin();  // must set its fd to -1 internally
     }
 
-    // Async: event loop will pump CGI → client
+    // Async: EventLoop/ClientHandler will pump CGI pipes and stream output.
     return false;
 }
-
 
 
 

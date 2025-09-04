@@ -3,6 +3,8 @@
 #include <cerrno>
 #include <cstring>
 #include <poll.h>
+#include <stdio.h>
+
 
 EventLoop::EventLoop() : _stop(false) {}
 EventLoop::~EventLoop()
@@ -135,6 +137,14 @@ void EventLoop::run(int timeout_ms)
 		{
 			const int fd = dispatch[i].first;
 			const short rev = dispatch[i].second;
+			fprintf(stderr, "[EV] fd=%d revents=0x%x%s%s%s%s%s\n",
+							fd, rev,
+							(rev & POLLIN) ? " POLLIN" : "",
+							(rev & POLLOUT)? " POLLOUT":"",
+							(rev & POLLERR)? " POLLERR":"",
+							(rev & POLLHUP)? " POLLHUP":"",
+							(rev & POLLNVAL)?" POLLNVAL":"");
+
 			int idx = indexOfFD(fd);
 			if (idx < 0)
 				continue; // may have been removed

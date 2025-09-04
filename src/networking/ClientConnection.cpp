@@ -401,15 +401,12 @@ void ClientConnection::routeAndBuild()
     );
 
     if (!done) {
-        // An async handler (CGI) has started. Do NOT serialize res now.
-        // The EventLoop/ClientHandler will pump cgi pipes and move bytes
-        // into io.getChainBuf() as they arrive.
-        should_close = true;        // conservative; you can relax later
-        state = PH_WRITE;
-        resetDeadline(WR_TIMEOUT_MS);
-		 // NEW: make sure EventLoop is watching CGI pipes
-    	
-        return;
+    // CGI started asynchronously.
+    // DO NOT close. Park in PH_WRITE and let CGIStreamer feed bytes.
+    should_close = false;                 // <- important
+    state = PH_WRITE;
+    resetDeadline(WR_TIMEOUT_MS);
+    return;
     }
 
     // Synchronous path (static/proxy/put/patch):
@@ -444,18 +441,18 @@ void ClientConnection::finishWriteOrNext()
     if (io.getChainBuf().getByteSize() != 0)
         return;
 
-    // Still streaming CGI? stay in PH_WRITE
-    if (cgi.cgiStdoutFD() >= 0 || cgi.hasOutBytes())
+    // Stay in PH_WRITE while CGI has output to come or still has buffered bytes
+    if (cgi.isActive() || cgi.cgiStdoutFD() >= 0 || cgi.hasOutBytes())
         return;
 
     if (should_close) { state = PH_CLOSE; return; }
 
-    // Reset for next request
+    // reset for next request…
     hdr_bytes = 0;
     max_body_bytes = 0;
     if (body) { delete body; body = 0; }
     plan = RoutePlan();
-    ctx->reset();             // your RouteDecision* reset
+    ctx->reset();
     req = HttpRequest();
     res = HttpResponse();
     route_selected = false;
@@ -464,8 +461,6 @@ void ClientConnection::finishWriteOrNext()
     resetDeadline(IDLE_TIMEOUT_MS);
     if (io.getInputRing().readAvail() > 0) parseHeaders();
 }
-
-
 
 
 
