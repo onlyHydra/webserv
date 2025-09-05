@@ -273,9 +273,6 @@ int HttpRequest::handleInput(bool &activity)
 	}
 	else
 	{
-		/* activity = true;
-		line = this->buffer;
-		buffer.clear(); */
 		// We reached BODY: do NOT consume any more bytes here.
     // Leave them in the buffer for the body reader stage.
 		activity = false;
