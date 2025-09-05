@@ -273,9 +273,13 @@ int HttpRequest::handleInput(bool &activity)
 	}
 	else
 	{
-		activity = true;
+		/* activity = true;
 		line = this->buffer;
-		buffer.clear();
+		buffer.clear(); */
+		// We reached BODY: do NOT consume any more bytes here.
+    // Leave them in the buffer for the body reader stage.
+		activity = false;
+		return 0;
 	}
 	return (this->handleLine(line));
 }
@@ -349,6 +353,12 @@ size_t HttpRequest::getBodyLength(void) const
 {
 	return (this->bodyLength);
 }
+
+void HttpRequest::appendBody(const char* data, size_t len)
+{
+    if (len) body.insert(body.end(), data, data + len);
+}
+
 
 string HttpRequest::getHttpVer(void) const
 {

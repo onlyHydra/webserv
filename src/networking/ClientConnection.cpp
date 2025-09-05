@@ -176,37 +176,40 @@ void ClientConnection::onTick(unsigned long long now_ms)
 
 void ClientConnection::parseHeaders()
 {
-	const char *buf = io.getInputRing().readPtr();
-	std::size_t avail = io.getInputRing().readAvail();
-	if (avail == 0)
-	return;
-	
-	if(!req.parse(buf, avail))
-	{
-		if(errno == HTTP_BAD_REQUEST || errno == HTTP_HEADER_TOO_BIG)
-			fail(errno,"");
-	}
-	
-	std::size_t used = avail;
-	
-	if (used > 0)
-	{
-		io.getInputRing().consumed(used);
-		hdr_bytes += used;
-		if (hdr_bytes > max_hdr_bytes)
-		{
-			fail(431, "Request Header Fields to Larger");
-			return;
-		}
-		resetDeadline(HDR_TIMEOUT_MS);
-	}
+    const char*       buf   = io.getInputRing().readPtr();
+    const std::size_t avail = io.getInputRing().readAvail();
+    if (avail == 0) return;
 
-	if (!req.headersDone())
-		return;
+    if (!req.parse(buf, avail)) {
+        if (errno == HTTP_BAD_REQUEST || errno == HTTP_HEADER_TOO_BIG) {
+            fail(errno, "");
+            return;
+        }
+        fail(400, "Bad Request");
+        return;
+    }
 
-	state = PH_ROUTE_SELECT;
-	resetDeadline(BODY_TIMEOUT_MS);
+    const std::size_t used = req.getBytesHandledLast(); // ← only what headers consumed
+
+    if (used > 0) {
+        io.getInputRing().consumed(used);
+        hdr_bytes += used;
+
+        if (hdr_bytes > max_hdr_bytes) {
+            fail(431, "Request Header Fields Too Large");
+            return;
+        }
+        resetDeadline(HDR_TIMEOUT_MS);
+    }
+
+    if (!req.headersDone())
+        return;
+
+    state = PH_ROUTE_SELECT;
+    resetDeadline(BODY_TIMEOUT_MS);
 }
+
+
 
 void ClientConnection::selectRouteOnce()
 {
@@ -291,101 +294,86 @@ void ClientConnection::runPreflight()
 	resetDeadline(BODY_TIMEOUT_MS);
 }
 
+// --- in ClientConnection.cpp ---
 void ClientConnection::readBody()
 {
-	const char *buf = io.getInputRing().readPtr();
-	const std::size_t avail = io.getInputRing().readAvail();
+    const char *buf = io.getInputRing().readPtr();
+    const std::size_t avail = io.getInputRing().readAvail();
 
-	if (!body)
-	{
-		fail(400, "Bad Request");
-		return;
-	}
+    if (!body) { fail(400, "Bad Request"); return; }
 
-	const std::size_t before = body->bytes_received();
+    const std::size_t before = body->bytes_received();
 
-	// 1) Try to consume whatever arrived this tick
-	if (avail != 0)
-	{
-		const std::size_t used = body->consume(buf, avail);
-		if (used > 0)
-		{
-			io.getInputRing().consumed(used);
-			resetDeadline(BODY_TIMEOUT_MS);
-		}
-	}
+    // 1) Consume any newly arrived bytes
+    if (avail != 0)
+    {
+        const std::size_t used = body->consume(buf, avail);
+        if (used > 0)
+        {
+            io.getInputRing().consumed(used);
+            resetDeadline(BODY_TIMEOUT_MS);
+        }
+    }
 
-	const std::size_t after = body->bytes_received();
+    const std::size_t after = body->bytes_received();
 
-	// 2) Enforce max-body guard (runtime, affects chunked too)
-	if (max_body_bytes && after > max_body_bytes)
-	{
-		fail(413, "Payload Too Large");
-		return; // do not attempt to flush
-	}
+    // 2) Runtime max-body guard
+    if (max_body_bytes && after > max_body_bytes) { fail(413, "Payload Too Large"); return; }
 
-	// 3) Progress watchdog for reading (no advance across ticks)
-	if (after == before && avail == 0)
-	{
-		// nothing new consumed, and no new bytes visible in ring
-		++body_no_progress_ticks;
-	}
-	else
-	{
-		body_no_progress_ticks = 0;
-	}
-	body_bytes_prev = after;
+    // 3) Read progress watchdog
+    if (after == before && avail == 0) ++body_no_progress_ticks;
+    else body_no_progress_ticks = 0;
 
-	// 4) If we’re file-backed, attempt a bounded flush to disk each tick
-	//    and watch for persistent no-progress when there IS pending data.
-	std::size_t pending_before = 0;
-	std::size_t flushed = 0;
+    // 4) If file-backed or chunked-with-spill, try to flush staged data each tick
+    std::size_t pending_before = 0, flushed = 0;
+    if (FileBodyReader *fr = dynamic_cast<FileBodyReader *>(body))
+    {
+        pending_before = fr->pending_size();
+        if (pending_before) flushed = fr->flush_to_disk(64 * 1024);
+    }
+    else if (ChunkedReader *cr = dynamic_cast<ChunkedReader *>(body))
+    {
+        pending_before = cr->pending_size();
+        if (pending_before) flushed = cr->flush_to_disk(64 * 1024);
+    }
 
-	if (FileBodyReader *fr = dynamic_cast<FileBodyReader *>(body))
-	{
-		pending_before = fr->pending_size();
-		if (pending_before)
-			flushed = fr->flush_to_disk(64 * 1024);
-	}
-	else if (ChunkedReader *cr = dynamic_cast<ChunkedReader *>(body))
-	{
-		pending_before = cr->pending_size();
-		if (pending_before)
-			flushed = cr->flush_to_disk(64 * 1024);
-	}
+    if (pending_before > 0 && flushed == 0) ++flush_no_progress_ticks;
+    else flush_no_progress_ticks = 0;
 
-	if (pending_before > 0 && flushed == 0)
-	{
-		++flush_no_progress_ticks;
-	}
-	else
-	{
-		flush_no_progress_ticks = 0;
-	}
+    if (body_no_progress_ticks >= BODY_STALL_TICK_LIMIT) { fail(408, "Request Timeout"); return; }
+    if (flush_no_progress_ticks >= FLUSH_STALL_TICK_LIMIT) { fail(507, "Insufficient Storage"); return; }
 
-	// 5) Stall policies
-	if (body_no_progress_ticks >= BODY_STALL_TICK_LIMIT)
-	{
-		// We’ve been called many times with no read progress → timeout
-		fail(408, "Request Timeout");
-		return;
-	}
-	if (flush_no_progress_ticks >= FLUSH_STALL_TICK_LIMIT)
-	{
-		// We had bytes staged for disk but couldn’t make any progress
-		// (don’t branch on errno; treat as storage/IO exhaustion class)
-		fail(507, "Insufficient Storage");
-		return;
-	}
+    // 5) Decide completion
+    const std::size_t want = req.getBodyLength(); // Content-Length if present, else 0
+    bool done = false;
 
-	// 6) Completion check
-	if (!body->complete() && req.getState() != OVER )
-		return;
+    if (want > 0)
+    {
+        // Content-Length path: done when received >= want AND no pending spill
+        if (body->bytes_received() >= want)
+        {
+            if (FileBodyReader *fr2 = dynamic_cast<FileBodyReader *>(body))
+            {
+                if (fr2->pending_size() == 0) done = true; else return;
+            }
+            else done = true;
+        }
+    }
+    else
+    {
+        // Chunked/unknown length: let the reader tell us
+        if (body->complete()) done = true;
+    }
 
-	// Body done → continue pipeline
-	state = PH_ROUTE;
-	resetDeadline(WR_TIMEOUT_MS);
+    if (!done) return;
+
+    // Body complete: advance pipeline
+    state = PH_ROUTE;
+    resetDeadline(WR_TIMEOUT_MS);
 }
+
+
+
 
 void ClientConnection::routeAndBuild()
 {
@@ -494,27 +482,37 @@ void ClientConnection::decideBodyReader()
 
 void ClientConnection::decideBodyReader(std::size_t content_length)
 {
-	if (body)
-	{
-		delete body;
-		body = 0;
-	}
+    // Drop any previous reader
+    if (body) { delete body; body = 0; }
 
-	const std::size_t cap = (max_body_bytes != 0) ? max_body_bytes : (std::size_t)(~0);
+    // Respect per-location/client cap, if any
+    const std::size_t cap =
+        (max_body_bytes != 0) ? max_body_bytes : static_cast<std::size_t>(~0);
 
-	const bool use_inmem =
-		(content_length > 0) &&
-		(content_length <= INMEM_BODY_LIMIT) &&
-		(content_length <= cap);
+    // Small or zero-length bodies stay in RAM (fixed-length reader)
+    if (content_length <= INMEM_BODY_LIMIT && content_length <= cap)
+    {
+        body = new ContentLenghtReader(content_length, req);
+        return;
+    }
 
-	if (use_inmem)
-	{
-		body = new ContentLenghtReader(content_length, req);
-	}
-	else
-	{
-		FileBodyReader *fr = new FileBodyReader(
-			server->getConfig().servers()[vs_idx].client_body_temp_path);
-		body = fr;
-	}
+    // Large bodies spill to a temp file; open eagerly so we can fail fast
+    const std::string tmpdir =
+        server->getConfig().servers()[vs_idx].client_body_temp_path;
+
+    FileBodyReader *fr = new FileBodyReader(tmpdir);
+    if (!fr->ensure_open())
+    {
+        delete fr;
+        fail(507, "Insufficient Storage");
+        return;
+    }
+
+    // Advertise the on-disk path to downstream (e.g., CGIStreamer)
+    req.enableBodyOnDisk(fr->get_path());
+
+    body = fr;
 }
+
+
+

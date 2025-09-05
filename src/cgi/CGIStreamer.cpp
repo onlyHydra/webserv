@@ -1,3 +1,4 @@
+#include "HttpRequest.h"
 #include "CGIStreamer.h"
 #include "CgiProcess.h"
 #include <fstream>
@@ -18,6 +19,7 @@
 #include <cstdio>
 #include <sstream>
 #include <ctime>
+#include <sys/time.h>   // <-- add this
 
 /***---------------------------CGI PROCCESSING AND EXECUTION--------------------------- ***/
 
@@ -56,12 +58,13 @@ static const char *reason_for(int code)
 
 void CGIStreamer::closeStdin()
 {
-    if (cgi_in_fd >= 0)
-    {
+    if (cgi_in_fd >= 0) {
         ::close(cgi_in_fd);
         cgi_in_fd = -1;
     }
+    // Important: Event loop must stop polling this fd once it sees -1.
 }
+
 
 std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
 {
@@ -83,13 +86,36 @@ std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
 
 
 CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
-    : req(req), res(res), cgi_active(false), cgi_in_fd(-1), cgi_out_fd(-1),
-      cgi_body_off(0), cgi_headers_done(false), cgi_status(200), cgi_content_len(-1),
-      cgi_deadline(0), outOffset(0), state(READ)
+    : req(req),
+      res(res),
+      proc(),
+      cgi_active(false),
+      cgi_in_fd(-1),
+      cgi_out_fd(-1),
+      cgi_body_off(0),
+      cgi_buf(),
+      body_fd_(-1),
+      body_off_(0),
+      body_path_(),
+      cgi_headers_done(false),
+      cgi_status(200),
+      cgi_content_len(-1),
+      cgi_deadline(0),
+      chunked_mode(false),
+      sent_final_chunk(false),
+      outBuffer(),
+      outOffset(0),
+      state(READ)
 {
-    // Initialize the output buffer
     outBuffer.clear();
+
+    if (req.isBodyOnDisk())
+        body_path_ = req.getBodyFilePath();
+    else
+        body_path_.clear();
 }
+
+
 
 // Parse CGI headers from buf. On success, removes headers from buf,
 // sets status (default 200), and sets content_len (or -1 if unknown).
@@ -364,60 +390,133 @@ void CGIStreamer::onCgiReadable(int fd)
     }
 }
 
+void CGIStreamer::resetDeadlineForWrite()
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    const unsigned long long now_ms =
+        static_cast<unsigned long long>(tv.tv_sec) * 1000ULL +
+        static_cast<unsigned long long>(tv.tv_usec) / 1000ULL;
+
+    cgi_deadline = now_ms + WRITE_TIMEOUT_MS;
+}
+
+
 
 
 void CGIStreamer::onCgiWritable(int fd)
 {
-    fprintf(stderr, "[CGI] onCgiWritable fd=%d active=%d in_fd=%d method=%s body_len=%lu off=%lu\n",
-            fd, (int)cgi_active, cgi_in_fd, req.getMethod().c_str(),
-            (unsigned long)req.getBodyLength(), (unsigned long)cgi_body_off);
-    if (!cgi_active || fd != cgi_in_fd)
-        return;
-    if (cgi_in_fd < 0)
-        return; // already closed
+    if (!cgi_active || fd != cgi_in_fd) return;
 
-    // No request body? Close stdin so the script doesn't wait forever.
-    if (req.getMethod() != "POST" && req.getBodyLength() == 0)
-    {
+    const std::size_t total = req.getBodyLength();
+
+    std::fprintf(stderr,
+        "[CGI] POLLOUT inFD=%d off=%zu total=%zu disk=%d\n",
+        cgi_in_fd,
+        (size_t)cgi_body_off,
+        (size_t)total,
+        req.isBodyOnDisk() ? 1 : 0
+    );
+
+    // Nothing to send (no body) or already finished → close stdin.
+    if (total == 0 || cgi_body_off >= total) {
         closeStdin();
         return;
     }
 
-    // Stream in-memory body (adjust later if you add temp-file streaming)
-    const std::vector<char> &b = req.getBody();
-    const std::size_t kMaxPerWrite = 64u * 1024u;
-
-    while (cgi_body_off < b.size())
+    // ---- Disk-backed body ----
+    if (req.isBodyOnDisk())
     {
-        std::size_t to_send = b.size() - cgi_body_off;
-        if (to_send > kMaxPerWrite)
-            to_send = kMaxPerWrite;
+        // Lazy-open the body file
+        if (body_fd_ < 0) {
+            body_fd_ = ::open(body_path_.c_str(), O_RDONLY
+#ifdef O_CLOEXEC
+                              | O_CLOEXEC
+#endif
+            );
+            if (body_fd_ < 0) {
+                std::fprintf(stderr, "[CGI] open(%s) failed: %d\n",
+                             body_path_.c_str(), errno);
+                closeStdin();
+                return;
+            }
+        }
 
-        ssize_t n = ::write(cgi_in_fd, &b[cgi_body_off], to_send);
-        if (n > 0)
-        {
-            cgi_body_off += static_cast<std::size_t>(n);
-        }
-        else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-        {
-            // Backpressure: try again when POLLOUT fires next time
-            break;
-        }
-        else
-        {
-            // Hard error (EPIPE, etc.) — stop feeding the child
+        char buf[8192];
+        const std::size_t remaining = total - cgi_body_off;
+        const std::size_t to_read   = remaining < sizeof(buf) ? remaining : sizeof(buf);
+
+        // Read exactly the next slice we still need
+        const off_t pos = static_cast<off_t>(cgi_body_off);
+        ssize_t r = ::pread(body_fd_, buf, to_read, pos);
+        if (r < 0) {
+            if (errno == EINTR) return;       // try again next POLLOUT
+            std::fprintf(stderr, "[CGI] pread error: %d\n", errno);
             closeStdin();
-            fprintf(stderr, "[CGI] closeStdin()\n");
             return;
         }
+        if (r == 0) {
+            // Unexpected EOF before total; just close stdin to unblock child.
+            std::fprintf(stderr, "[CGI] pread EOF early at %zu/%zu\n",
+                         (size_t)cgi_body_off, (size_t)total);
+            closeStdin();
+            return;
+        }
+
+        // Write to child's stdin (NB short writes are normal)
+        ssize_t w = ::write(cgi_in_fd, buf, r);
+        if (w < 0) {
+            if (errno == EINTR || errno == EAGAIN) return; // try again later
+            std::fprintf(stderr, "[CGI] write(disk) error: %d\n", errno);
+            closeStdin();
+            return;
+        }
+
+        if (w > 0) {
+            cgi_body_off += static_cast<std::size_t>(w);
+            std::fprintf(stderr, "[CGI] wrote(disk)=%zd new_off=%zu\n",
+                         w, (size_t)cgi_body_off);
+            resetDeadlineForWrite();
+            if (cgi_body_off >= total) {
+                closeStdin();
+            }
+        }
+        return;
     }
 
-    // Body fully sent → close stdin so child sees EOF and starts responding
-    if (cgi_body_off >= b.size())
-    {
+    // ---- In-memory body ----
+    const std::vector<char>& b = req.getBody();
+
+    if (cgi_body_off >= b.size()) {
+        // Nothing left in RAM buffer (should match total)
         closeStdin();
+        return;
+    }
+
+    const char* p = &b[0] + cgi_body_off;
+    std::size_t len = b.size() - cgi_body_off;
+    if (len > 16384u) len = 16384u; // cap per write
+
+    ssize_t w = ::write(cgi_in_fd, p, len);
+    if (w < 0) {
+        if (errno == EINTR || errno == EAGAIN) return; // try again later
+        std::fprintf(stderr, "[CGI] write(ram) error: %d\n", errno);
+        closeStdin();
+        return;
+    }
+
+    if (w > 0) {
+        cgi_body_off += static_cast<std::size_t>(w);
+        std::fprintf(stderr, "[CGI] wrote(ram)=%zd new_off=%zu\n",
+                     w, (size_t)cgi_body_off);
+        resetDeadlineForWrite();
+        if (cgi_body_off >= total) {
+            closeStdin();
+        }
     }
 }
+
+
 
 // Analyze parsed headers and set internal markers for future enforcement.
 // We keep this minimal: detect Content-Length, Transfer-Encoding: chunked,
@@ -438,6 +537,13 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     cgi_body_off = 0;
     chunked_mode     = false;
     sent_final_chunk = false;
+
+    std::fprintf(stderr,
+    "[CGI] begin: inFD=%d outFD=%d len=%zu disk=%d path=%s\n",
+    cgi_in_fd, cgi_out_fd,
+    (size_t)req.getBodyLength(),
+    req.isBodyOnDisk() ? 1 : 0,
+    req.isBodyOnDisk() ? req.getBodyFilePath().c_str() : "");
 
 
     if (!proc.spawn(spec, script_path, envv))

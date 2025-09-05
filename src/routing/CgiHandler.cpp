@@ -209,6 +209,11 @@ CgiHandler::~CgiHandler() {}
 
 bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
+
+    std::fprintf(stderr, "[CGI] handle enter method=%s path=%s body_len=%zu temp=%d\n",
+             req.getMethod().c_str(), req.getPath().c_str(),
+             (size_t)req.getBodyLength(), (int)ctx.temp_file_used);
+
     // 0) Resolve CGI spec (per-location overrides global)
     CgiRegistry reg;
     const std::map<std::string, CgiSpec>* locMap = ctx.loc ? &ctx.loc->cgi_by_ext : 0;
@@ -282,9 +287,22 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
     // 4) If there is no request body to feed, close CGI stdin now so the script
     //    doesn't block waiting for EOF (typical for GET/HEAD).
     const bool has_body = (req.getBodyLength() > 0) || ctx.temp_file_used;
-    if (!has_body && req.getMethod() != "POST") {
-        ctx.cgi_streamer->closeStdin();  // must set its fd to -1 internally
+
+    if (has_body) {
+    int inFD  = ctx.cgi_streamer->cgiStdinFD();
+    int outFD = ctx.cgi_streamer->cgiStdoutFD();
+    std::fprintf(stderr, "[CGI] register POLLOUT for inFD=%d; POLLIN for outFD=%d\n", inFD, outFD);
+
+        // Whatever your event-loop API is, ensure both registrations happen:
+        // loop.modifyFD(inFD,  POLLOUT | /* keep existing flags if you track them */);
+        // loop.modifyFD(outFD, POLLIN  | /* … */);
+    } else if (req.getMethod() != "POST") {
+        // For GET/HEAD with no body, close stdin so the CGI won’t hang waiting for EOF.
+        ctx.cgi_streamer->closeStdin();
     }
+    /* if (!has_body && req.getMethod() != "POST") {
+        ctx.cgi_streamer->closeStdin();  // must set its fd to -1 internally
+    } */
 
     // Async: EventLoop/ClientHandler will pump CGI pipes and stream output.
     return false;

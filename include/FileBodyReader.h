@@ -34,6 +34,7 @@ public:
 
 	// Ensure the body file exists; returns false on failure.
 	bool ensure_open();
+	const std::string& get_path() const;
 
 	// FD of the temp body file (>=0 when open, else -1).
 	int getFd() const { 

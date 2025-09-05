@@ -1,27 +1,18 @@
-#ifndef CGISTREAMER_H
-#define CGISTREAMER_H
+#ifndef CGI_STREAMER_H
+#define CGI_STREAMER_H
 
 #include <string>
 #include <vector>
-#include <cstddef>
+#include <cstddef> // size_t
 
-#include "CgiProcess.h"    // owns fork/exec + pipe fds
-#include "HttpRequest.h"
-#include "HttpResponse.h"
-
-// Forward-declared; we only pass it by reference.
 class ChainBuf;
-
-// Forward-declare CGI spec if not in CgiProcess.h
+class HttpRequest;
+class HttpResponse;
 struct CgiSpec;
 
-/**
- * CGIStreamer
- * ----------
- * Runs a CGI child process asynchronously and buffers its output as
- * fully-formed HTTP bytes. ClientConnection pulls those bytes via
- * takeOutBytes() and writes them to the socket.
- */
+#include "CgiProcess.h"
+
+// Streams data between the client and a spawned CGI process (non-blocking).
 class CGIStreamer
 {
 public:
@@ -70,15 +61,21 @@ private:
     bool                cgi_active;        // true after beginCgi() until teardown
     int                 cgi_in_fd;         // write end → child's stdin
     int                 cgi_out_fd;        // read end  ← child's stdout/stderr
-    std::size_t         cgi_body_off;      // how much of request body we've fed
-    std::string         cgi_buf;           // scratch for header parsing / overflow
+    std::size_t         cgi_body_off;      // bytes of in-memory body already sent
+    std::string         cgi_buf;           // raw bytes from CGI (headers + body)
+
+    // Request-body temp-file streaming (for large POST/PUT, chunked spill)
+    int                 body_fd_;          // fd of on-disk request body (or -1)
+    std::size_t         body_off_;         // read offset within body file
+    std::string         body_path_;        // temp body file path (if any)
+
     bool                cgi_headers_done;  // set once we built HTTP head
     int                 cgi_status;        // from "Status:"; default 200
     long                cgi_content_len;   // from "Content-Length:"; -1 if unknown
     unsigned long long  cgi_deadline;      // write/overall deadline ticks
 
-    bool chunked_mode;       // true => write chunk frames
-    bool sent_final_chunk;   // true => we already wrote the 0\r\n\r\n terminator
+    bool                chunked_mode;      // if streaming to client as chunked
+    bool                sent_final_chunk;  // whether "0\r\n\r\n" has been sent
 
     // Fully-formed HTTP bytes to send to the client socket
     std::vector<char>   outBuffer;
@@ -91,6 +88,7 @@ private:
     static const unsigned long long WRITE_TIMEOUT_MS = 5000; // 5s
 };
 
-#endif // CGISTREAMER_H
+#endif // CGI_STREAMER_H
+
 
 
