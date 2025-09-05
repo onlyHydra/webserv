@@ -77,6 +77,9 @@ private:
     long                cgi_content_len;   // from "Content-Length:"; -1 if unknown
     unsigned long long  cgi_deadline;      // write/overall deadline ticks
 
+    bool chunked_mode;       // true => write chunk frames
+    bool sent_final_chunk;   // true => we already wrote the 0\r\n\r\n terminator
+
     // Fully-formed HTTP bytes to send to the client socket
     std::vector<char>   outBuffer;
     std::size_t         outOffset;
