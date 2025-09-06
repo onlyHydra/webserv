@@ -1,5 +1,5 @@
 #include "ClientHandler.h"
-
+#include "CGIStreamer.h"
 #include <sys/time.h>
 #include <poll.h>
 #include <cerrno>
@@ -71,8 +71,11 @@ void ClientHandler::onEvent(int fd, short revents)
     // 2) CGI stdout
     if (fd == clientConnection->getCGIStreamer().cgiStdoutFD())
     {
-        if (revents & (POLLIN | POLLHUP | POLLERR))
+        if ((revents & (POLLIN | POLLHUP | POLLERR)) &&
+            clientConnection->getCGIStreamer().wantsRead())
+        {
             clientConnection->getCGIStreamer().onCgiReadable(fd);
+        }
 
         (void)clientConnection->pumpCgiToSocket();
 
@@ -87,6 +90,7 @@ void ClientHandler::onEvent(int fd, short revents)
             clientConnection->getCGIStreamer().hasOutBytes())
             ev |= POLLOUT;
 
+        const int sockfd = clientConnection->fd();
         if (eventLoop.indexOfFD(sockfd) >= 0)
             eventLoop.modFD(sockfd, ev);
 

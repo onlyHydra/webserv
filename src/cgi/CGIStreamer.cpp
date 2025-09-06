@@ -22,6 +22,9 @@
 #include <sys/time.h>   // <-- add this
 #include <ctype.h>   // tolower
 #include <signal.h>  // SIGKILL (if you still kill by pid)
+#include <sys/stat.h>   // struct stat, fstat
+#include <unistd.h>     // close, fstat on POSIX
+
 
 
 
@@ -263,8 +266,8 @@ void CGIStreamer::timeout504()
     closeStdin();
     closeStdout();
 
-    // If you *can* kill by pid via CgiProcess, do it (adjust to your API):
-    // if (proc.pid() > 0) ::kill(proc.pid(), SIGKILL);
+     // Stop and reap the child; also closes its pipe fds
+    proc.terminate();
 
     // Don’t try to synthesize a response here if your connection owns that logic.
     // Just mark inactive; the owner connection/timer should notice and fail 504.
@@ -425,71 +428,156 @@ void CGIStreamer::onCgiReadable(int fd)
 {
     if (fd != cgi_out_fd || cgi_out_fd < 0) return;
 
+    // Optional extra guard (onEvent usually gates this already)
+    if (!wantsRead()) return;
+
     char buf[8192];
     for (;;)
     {
         ssize_t r = ::read(cgi_out_fd, buf, sizeof(buf));
-        if (r > 0) {
+        if (r > 0)
+        {
             const char* p = buf;
-            std::size_t n = (std::size_t)r;
+            std::size_t n = static_cast<std::size_t>(r);
 
-            // Strip CGI header preface once (lines until blank line)
-            if (!cgi_preface_stripped_) {
-                cgi_preface_buf_.append(p, n);
+            // -------- Header preface handling (optional per CGI) --------
+            if (hdr_state_ == HDR_WAITING)
+            {
+                // Accumulate until blank line (CRLFCRLF or LFLF)
+                cgi_header_accum_.append(p, n);
 
-                // Find CRLFCRLF or LFLF
+                // Try to find end-of-headers
                 std::string::size_type cut = std::string::npos;
-                std::string::size_type k = cgi_preface_buf_.find("\r\n\r\n");
+                std::string::size_type k = cgi_header_accum_.find("\r\n\r\n");
                 if (k != std::string::npos) cut = k + 4;
                 else {
-                    k = cgi_preface_buf_.find("\n\n");
+                    k = cgi_header_accum_.find("\n\n");
                     if (k != std::string::npos) cut = k + 2;
                 }
 
-                if (cut == std::string::npos) {
-                    // need more header bytes before we can send any body
+                if (cut == std::string::npos)
+                {
+                    // Heuristic fallback:
+                    //  - if the first line has no ":", or
+                    //  - headers grow too large without terminator
+                    // → treat everything as body (some scripts print only body).
+                    bool first_line_has_colon = false;
+                    {
+                        std::string::size_type eol = cgi_header_accum_.find_first_of("\r\n");
+                        std::string first = (eol == std::string::npos)
+                          ? cgi_header_accum_ : cgi_header_accum_.substr(0, eol);
+                        first_line_has_colon = (first.find(':') != std::string::npos);
+                    }
+                    if (!first_line_has_colon || cgi_header_accum_.size() > 8192u)
+                    {
+                        // No recognizable header preface → stream as body
+                        if (!cgi_header_accum_.empty())
+                            enqueueOut(cgi_header_accum_.data(), cgi_header_accum_.size());
+                        cgi_header_accum_.clear();
+                        hdr_state_ = HDR_DONE;
+                    }
+
+                    // Still waiting for more header bytes (or just switched to DONE)
                     continue;
                 }
 
-                // Drop preface; anything after 'cut' is body
-                if (cut < cgi_preface_buf_.size()) {
-                    const char* bodyp = cgi_preface_buf_.c_str() + cut;
-                    const std::size_t bodyn = cgi_preface_buf_.size() - cut;
-                    enqueueOut(bodyp, bodyn);   // chunked when chunked_mode == true
+                // We have a header block → parse it
+                const std::string hdr = cgi_header_accum_.substr(0, cut);
+                // Minimal line parser: split on CRLF or LF
+                std::string line;
+                for (std::string::size_type i = 0; i < hdr.size(); )
+                {
+                    // consume a line
+                    std::string::size_type j = i;
+                    while (j < hdr.size() && hdr[j] != '\r' && hdr[j] != '\n') ++j;
+                    line.assign(hdr, i, j - i);
+
+                    // skip line break
+                    if (j < hdr.size() && hdr[j] == '\r') ++j;
+                    if (j < hdr.size() && hdr[j] == '\n') ++j;
+                    i = j;
+
+                    if (line.empty()) continue; // blank line (separator)
+
+                    // key: value
+                    std::string::size_type col = line.find(':');
+                    if (col == std::string::npos) continue;
+
+                    std::string key = line.substr(0, col);
+                    std::string val = line.substr(col + 1);
+
+                    // trim leading spaces in value
+                    while (!val.empty() && (val[0] == ' ' || val[0] == '\t'))
+                        val.erase(0, 1);
+
+                    // lowercase key for comparisons
+                    for (std::size_t qi = 0; qi < key.size(); ++qi) {
+                        unsigned char c = static_cast<unsigned char>(key[qi]);
+                        if (c >= 'A' && c <= 'Z') key[qi] = char(c - 'A' + 'a');
+                    }
+
+                    if (key == "status") {
+                        // format: "NNN Reason"
+                        int code = 0;
+                        std::size_t pos = 0;
+                        while (pos < val.size() && val[pos] >= '0' && val[pos] <= '9') {
+                            code = code * 10 + (val[pos] - '0');
+                            ++pos;
+                        }
+                        while (pos < val.size() && val[pos] == ' ') ++pos;
+                        status_code_   = code;
+                        status_reason_ = (pos < val.size()) ? val.substr(pos) : std::string();
+                    } else if (key == "content-type") {
+                        saw_content_type_ = true;
+                        // (If you want to forward/track, store val in a member)
+                    } else if (key == "set-cookie") {
+                        set_cookie_.push_back(val);
+                    }
+                    // ignore other headers; the HTTP head is already sent by the connection
                 }
-                cgi_preface_buf_.clear();
-                cgi_preface_stripped_ = true;
+
+                // Anything after the header terminator is body – stream it
+                if (cut < cgi_header_accum_.size()) {
+                    const char* bodyp = cgi_header_accum_.data() + cut;
+                    const std::size_t bodyn = cgi_header_accum_.size() - cut;
+                    enqueueOut(bodyp, bodyn);
+                }
+
+                cgi_header_accum_.clear();
+                hdr_state_ = HDR_DONE;
                 continue;
             }
 
-            // Normal body bytes → chunk them
+            // -------- Normal body streaming (headers already handled/omitted) --------
             enqueueOut(p, n);
             continue;
         }
 
-        if (r == 0) { // EOF from CGI
+        if (r == 0)  // EOF from CGI
+        {
             closeStdout();
 
             // Finish chunked stream once
-             if (chunked_mode && !sent_final_chunk) {
+            if (chunked_mode && !sent_final_chunk) {
                 static const char fin[] = "0\r\n\r\n";
                 outBuffer.insert(outBuffer.end(), fin, fin + sizeof(fin) - 1);
                 sent_final_chunk = true;
             }
-
             cgi_active = false;
             break;
         }
 
+        // r < 0
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
             break;
 
-        // hard error
+        // Hard error
         closeStdout();
         cgi_active = false;
         break;
     }
 }
+
 
 
 
@@ -515,26 +603,10 @@ void CGIStreamer::onCgiWritable(int fd)
 {
     if (!cgi_active || fd != cgi_in_fd) return;
 
-    const std::size_t total = req.getBodyLength();
-
-    std::fprintf(stderr,
-        "[CGI] POLLOUT inFD=%d off=%zu total=%zu disk=%d\n",
-        cgi_in_fd,
-        (size_t)cgi_body_off,
-        (size_t)total,
-        req.isBodyOnDisk() ? 1 : 0
-    );
-
-    // Nothing to send (no body) or already finished → close stdin.
-    if (total == 0 || cgi_body_off >= total) {
-        closeStdin();
-        return;
-    }
-
-    // ---- Disk-backed body ----
+    // ---- DISK-BACKED BODY ----
     if (req.isBodyOnDisk())
     {
-        // Lazy-open the body file
+        // Open the temp body file lazily
         if (body_fd_ < 0) {
             body_fd_ = ::open(body_path_.c_str(), O_RDONLY
 #ifdef O_CLOEXEC
@@ -544,33 +616,52 @@ void CGIStreamer::onCgiWritable(int fd)
             if (body_fd_ < 0) {
                 std::fprintf(stderr, "[CGI] open(%s) failed: %d\n",
                              body_path_.c_str(), errno);
-                closeStdin();
+                closeStdin();        // unblock child even on error
                 return;
             }
         }
 
+        // Determine total size from the file (don’t rely on req.getBodyLength())
+        struct stat st;
+        if (::fstat(body_fd_, &st) != 0) {
+            std::fprintf(stderr, "[CGI] fstat(%s) failed: %d\n",
+                         body_path_.c_str(), errno);
+            closeStdin();
+            return;
+        }
+        const std::size_t total = static_cast<std::size_t>(st.st_size);
+
+        std::fprintf(stderr,
+            "[CGI] POLLOUT inFD=%d off=%zu total=%zu disk=1\n",
+            cgi_in_fd, (size_t)cgi_body_off, (size_t)total);
+
+        // Nothing to send? (empty file) → close stdin
+        if (total == 0 || cgi_body_off >= total) {
+            closeStdin();
+            return;
+        }
+
+        // Read the next slice we still need and write it to the child
         char buf[8192];
         const std::size_t remaining = total - cgi_body_off;
         const std::size_t to_read   = remaining < sizeof(buf) ? remaining : sizeof(buf);
 
-        // Read exactly the next slice we still need
         const off_t pos = static_cast<off_t>(cgi_body_off);
         ssize_t r = ::pread(body_fd_, buf, to_read, pos);
         if (r < 0) {
-            if (errno == EINTR) return;       // try again next POLLOUT
+            if (errno == EINTR) return;       // try again later
             std::fprintf(stderr, "[CGI] pread error: %d\n", errno);
             closeStdin();
             return;
         }
         if (r == 0) {
-            // Unexpected EOF before total; just close stdin to unblock child.
+            // Unexpected EOF before total; still signal EOF to child
             std::fprintf(stderr, "[CGI] pread EOF early at %zu/%zu\n",
                          (size_t)cgi_body_off, (size_t)total);
             closeStdin();
             return;
         }
 
-        // Write to child's stdin (NB short writes are normal)
         ssize_t w = ::write(cgi_in_fd, buf, r);
         if (w < 0) {
             if (errno == EINTR || errno == EAGAIN) return; // try again later
@@ -585,17 +676,22 @@ void CGIStreamer::onCgiWritable(int fd)
                          w, (size_t)cgi_body_off);
             resetDeadlineForWrite();
             if (cgi_body_off >= total) {
-                closeStdin();
+                closeStdin(); // signal EOF so CGI can proceed
             }
         }
         return;
     }
 
-    // ---- In-memory body ----
+    // ---- IN-MEMORY BODY ----
+    const std::size_t total = req.getBodyLength();
     const std::vector<char>& b = req.getBody();
 
-    if (cgi_body_off >= b.size()) {
-        // Nothing left in RAM buffer (should match total)
+    std::fprintf(stderr,
+        "[CGI] POLLOUT inFD=%d off=%zu total=%zu disk=0\n",
+        cgi_in_fd, (size_t)cgi_body_off, (size_t)total);
+
+    // Nothing to send? (no body) or already finished
+    if (total == 0 || cgi_body_off >= total || cgi_body_off >= b.size()) {
         closeStdin();
         return;
     }
@@ -617,11 +713,12 @@ void CGIStreamer::onCgiWritable(int fd)
         std::fprintf(stderr, "[CGI] wrote(ram)=%zd new_off=%zu\n",
                      w, (size_t)cgi_body_off);
         resetDeadlineForWrite();
-        if (cgi_body_off >= total) {
-            closeStdin();
+        if (cgi_body_off >= total || cgi_body_off >= b.size()) {
+            closeStdin(); // signal EOF so CGI can proceed
         }
     }
 }
+
 
 
 
@@ -638,7 +735,7 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
 {
     // ---- Reset streaming state ----
     cgi_active        = false;
-    cgi_headers_done  = false;        // connection already sent head
+    cgi_headers_done  = false;      // we’ll parse CGI preface
     cgi_status        = 200;
     cgi_content_len   = -1;
     cgi_buf.clear();
@@ -651,27 +748,19 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     body_off_         = 0;
     body_path_        = req.isBodyOnDisk() ? req.getBodyFilePath() : std::string();
 
-    // We are NOT going to synthesize/forward CGI header preface here
-    hdr_state_        = HDR_DONE;
+    // Header-phase parsing state
+    hdr_state_            = HDR_WAITING;   // wait for CGI header preface
     cgi_header_accum_.clear();
-    saw_content_type_ = false;
-    status_code_      = 0;
+    saw_content_type_     = false;
+    status_code_          = 0;
     status_reason_.clear();
     set_cookie_.clear();
 
-    // Output framing to client: chunked
+    // Output framing to client
     chunked_mode          = true;
     sent_final_chunk      = false;
     cgi_preface_stripped_ = false;
     cgi_preface_buf_.clear();
-
-    // Log (optional)
-    std::fprintf(stderr,
-        "[CGI] begin: inFD=%d outFD=%d len=%zu disk=%d path=%s\n",
-        cgi_in_fd, cgi_out_fd,
-        (size_t)req.getBodyLength(),
-        req.isBodyOnDisk() ? 1 : 0,
-        req.isBodyOnDisk() ? body_path_.c_str() : "");
 
     // ---- Spawn the CGI process ----
     if (!proc.spawn(spec, script_path, envv))
@@ -680,7 +769,6 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     cgi_in_fd  = proc.inFD();   // server writes → child stdin
     cgi_out_fd = proc.outFD();  // server reads  ← child stdout
 
-    // Ensure non-blocking + CLOEXEC (safe if already set)
 #ifdef F_GETFL
     if (cgi_in_fd >= 0) {
         int fl = ::fcntl(cgi_in_fd, F_GETFL, 0);
@@ -696,13 +784,34 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     }
 #endif
 
-    // No request body? Close child's stdin so scripts don't hang on read()
-    if (req.getBodyLength() == 0)
+    // If no request body in RAM or on disk, close child's stdin immediately.
+    if (req.getBodyLength() == 0 && !req.isBodyOnDisk())
         closeStdin();
+
+    // ---- Arm deadlines (use PhaseDeadline::reset(now_ms, timeout_ms)) ----
+    struct timeval tv; ::gettimeofday(&tv, 0);
+    unsigned long long now_ms =
+        (unsigned long long)tv.tv_sec * 1000ULL +
+        (unsigned long long)tv.tv_usec / 1000ULL;
+
+    const int HDR_WAIT_MS     = 3000;   // 3s to receive CGI headers
+    const int TOTAL_LIMIT_MS  = 15000;  // 15s total CGI lifetime
+
+    hdr_deadline_.reset(now_ms, HDR_WAIT_MS);
+    total_deadline_.reset(now_ms, TOTAL_LIMIT_MS);
+
+    // Log (optional)
+    std::fprintf(stderr,
+        "[CGI] begin: inFD=%d outFD=%d len=%zu disk=%d path=%s\n",
+        cgi_in_fd, cgi_out_fd,
+        (size_t)req.getBodyLength(),
+        req.isBodyOnDisk() ? 1 : 0,
+        req.isBodyOnDisk() ? body_path_.c_str() : "");
 
     cgi_active = (cgi_out_fd >= 0);
     return cgi_active;
 }
+
 
 
 
@@ -720,3 +829,6 @@ void CGIStreamer::onTick(unsigned long long now_ms) {
         return;
     }
 }
+
+
+

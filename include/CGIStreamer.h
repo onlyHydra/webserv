@@ -39,6 +39,13 @@ public:
     // Is there buffered HTTP data ready for the socket?
     bool hasOutBytes()  const { return outOffset < outBuffer.size(); }
 
+    // backpressure threshold for buffered (chunked) bytes waiting to be sent
+    static const std::size_t OUT_CAP_BYTES = 256u * 1024u;
+
+    bool wantsRead() const {
+        return outBuffer.size() - outOffset < OUT_CAP_BYTES;
+    }
+
     // Move up to max_bytes from internal buffer into the socket ChainBuf.
     // Returns number of bytes appended.
     std::size_t takeOutBytes(ChainBuf &out, std::size_t max_bytes);
@@ -70,6 +77,9 @@ private:
 
     // Kill/reap and synthesize 504 if needed
     void timeout504();
+
+    
+
 
 private:
     // ---- Bound request/response + process wrapper ----
