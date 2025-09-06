@@ -54,14 +54,20 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 
 ClientConnection::~ClientConnection()
 {
+
 	if(server)
-		server = 0;
+	server = 0;
 	if (ctx)
 	{
 		delete ctx;
 		ctx = 0;
 	}
-	
+	if (body)
+	{
+		delete body;
+		body = 0;
+	}
+	req.cleanupBodyFile();
 }
 
 bool ClientConnection::isClosed() const { return state == PH_CLOSE; }
@@ -403,6 +409,8 @@ void ClientConnection::finishWriteOrNext()
 		return;
 	}
 
+	req.cleanupBodyFile();
+	req.reset();
 	// Reset req now
 	hdr_bytes = 0;
 	max_body_bytes = 0;

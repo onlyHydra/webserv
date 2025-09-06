@@ -455,3 +455,26 @@ void HttpRequest::setKeepAlive(bool state)
 {
 	this->conType = state;
 }
+
+void HttpRequest::reset()
+{
+	this->method.clear();
+	this->path.clear();
+	this->http_version.clear();
+	this->uri.clear();
+	this->query.clear();
+	this->session_id.clear();
+	this->bodyLength = 0;
+	this->buffer.clear();
+	this->state = START;
+	this->totalBytesRead = 0;
+	this->totalBytesHandled = 0;
+	this->bytesHandledLast = 0;
+	this->conType = true;
+	this->body_on_disk = false;
+	this->body_tmp_path.clear();
+	this->body_on_disk_bytes = 0;
+	this->body.clear();
+	this->headers.clear();
+	this->cookies.clear();
+}

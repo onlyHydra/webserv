@@ -322,13 +322,12 @@ class Server
 				ClientHandler* h = *it;
 				if (h && h->conn() == c)
 				{
+					loop.removeFD(c->getFD());
 					server_handlers.erase(it);
 					delete h;
 					break;
 				}
 			}
-			loop.removeFD(c->getFD());
-			delete c;
 		}
 
 
