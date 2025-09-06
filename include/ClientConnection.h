@@ -59,6 +59,8 @@ class ClientConnection
 		}
 		
 		bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
+		void drainRingIntoBody();
+		
 		
 	private:
 		void parseHeaders();
@@ -96,6 +98,13 @@ class ClientConnection
 		int flush_no_progress_ticks;
 		unsigned long long now_cached_ms;
 		bool ready_to_close;
+		std::size_t fixed_body_target_;  
+
+		size_t        body_expected_;     // from Content-Length
+		size_t        body_received_;     // progresses to body_expected_
+		int           body_fd_;           // -1 if using RAM
+		std::string   body_path_;         // temp file path if body_fd_ >= 0
+		static const size_t MEM_BODY_LIMIT = 32u * 1024u; // spill threshold
 		
 
 		enum
