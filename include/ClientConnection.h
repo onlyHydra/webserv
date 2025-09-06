@@ -29,7 +29,7 @@ class ClientConnection
 		bool isClosed() const;
 		bool wantsRead();
 		bool isReadPaused();
-		bool hasPendingWrite();
+		bool hasPendingWrite() const;
 		int fd() const { 
 			return io.getFD(); 
 		}
@@ -57,6 +57,8 @@ class ClientConnection
 		int getFD() {
 			return io.getFD();
 		}
+		
+		bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
 		
 	private:
 		void parseHeaders();
@@ -94,6 +96,7 @@ class ClientConnection
 		int flush_no_progress_ticks;
 		unsigned long long now_cached_ms;
 		bool ready_to_close;
+		
 
 		enum
 		{

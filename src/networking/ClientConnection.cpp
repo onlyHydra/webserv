@@ -66,13 +66,71 @@ ClientConnection::~ClientConnection()
 }
 
 bool ClientConnection::isClosed() const { return state == PH_CLOSE; }
-bool ClientConnection::hasPendingWrite() { return io.getChainBuf().getByteSize() != 0; }
+/* bool ClientConnection::hasPendingWrite() const
+{
+    return io.getChainBuf().getByteSize() > 0
+        || cgi.hasOutBytes();
+} */
+
+bool ClientConnection::hasPendingWrite() const {
+    return io.getChainBuf().getByteSize() > 0;
+}
+
 bool ClientConnection::isReadPaused() { return io.getFlow().isReadPaused(); }
 void ClientConnection::close() 
 
 {
 	server->releaseConnection(this); 
 }
+
+
+bool ClientConnection::pumpCgiToSocket(std::size_t max_bytes)
+{
+    bool progressed = false;
+
+    // 1) Pull from CGI → connection out buffer (chunked framing happens in CGIStreamer)
+    if (cgi.isActive()) {
+        const std::size_t pulled = cgi.takeOutBytes(io.getChainBuf(), max_bytes);
+        if (pulled > 0) progressed = true;
+    }
+
+    // 2) Try to write whatever we have to the client socket
+    if (io.getChainBuf().getByteSize() > 0) {
+        const ssize_t n = io.nb_write();  // non-blocking send
+        if (n > 0) progressed = true;
+        // Do NOT branch on errno here per project rules if n <= 0
+    }
+
+    // 3) If progress was made, refresh the write deadline (if you track one)
+    if (progressed) {
+        // keep the connection’s write phase alive
+        state = PH_WRITE;
+        // only call this if you have such a helper:
+        resetDeadline(WR_TIMEOUT_MS);
+    }
+
+    // 4) Finalize: only when CGI is done AND socket buffer is empty
+    if (!cgi.isActive() && io.getChainBuf().getByteSize() == 0) {
+        if (should_close) {
+            state = PH_CLOSE;
+        } else {
+            // Ready for the next request on this keep-alive connection
+            // Reinitialize request/response to defaults
+            req = HttpRequest();
+            res = HttpResponse();
+
+            state = PH_READ_HEADERS; // wait for the next request
+        }
+    }
+
+    // Return whether there is still work pending (CGI active or bytes left to write),
+    // or we made progress this call (useful for your onTick/onEvent loop heuristics).
+    return progressed || cgi.isActive() || (io.getChainBuf().getByteSize() > 0);
+}
+
+
+
+
 
 bool ClientConnection::wantsRead()
 {
@@ -172,7 +230,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
     }
 }
 
-
+ bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
 
 void ClientConnection::parseHeaders()
 {
@@ -371,48 +429,84 @@ void ClientConnection::readBody()
     state = PH_ROUTE;
     resetDeadline(WR_TIMEOUT_MS);
 }
+#include <ctime>
+#include <string>
 
-
-
+static std::string http_date_now_gmt()
+{
+    char buf[64];
+    std::time_t t = std::time(0);
+    std::tm g;
+#if defined(_WIN32)
+    gmtime_s(&g, &t);
+#else
+    g = *std::gmtime(&t);
+#endif
+    if (std::strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &g))
+        return std::string(buf);
+    return std::string();
+}
 
 void ClientConnection::routeAndBuild()
 {
-    // Ask the pipeline to handle the request.
-    // IMPORTANT: pass &cgi so a CGI handler can start asynchronous streaming.
-    bool done = ServerPipeline::processRequest(
-        server->getConfig(),  // cfg
-        vs_idx,               // virtual server index
-        req,                  // request
-        res,                  // response (to be filled if done == true)
-        *ctx,                 // routing decision
-        &cgi                  // <-- CGIStreamer owned by this connection
+    // Let the pipeline decide and (possibly) start CGI.
+    const bool done = ServerPipeline::processRequest(
+        server->getConfig(),
+        vs_idx,
+        req,
+        res,
+        *ctx,
+        &cgi
     );
 
+    // One keep-alive decision used by both paths
+    const std::string connHdr = req.getHeaders().get("Connection");
+    should_close =
+        (req.getHttpVer() == "HTTP/1.0") ||
+        (connHdr == "close" || connHdr == "Close");
+
     if (!done) {
-    // CGI started asynchronously.
-    // DO NOT close. Park in PH_WRITE and let CGIStreamer feed bytes.
-    should_close = false;                 // <- important
-    state = PH_WRITE;
-    resetDeadline(WR_TIMEOUT_MS);
-    return;
+        // -------- Asynchronous CGI response --------
+        // We must send an HTTP head *now*. Do NOT add Content-Length here.
+        // We *do* stream the body as chunked while the CGI produces it.
+
+        HttpResponse head;
+        head.status = 200;
+        head.reason = "OK";
+
+        // Minimal, safe defaults (CGI will send plain text in your tests).
+        head.headers.set("Content-Type", "text/plain");
+        head.headers.set("Transfer-Encoding", "chunked");
+        head.headers.set("Connection", should_close ? "close" : "keep-alive");
+
+        // Only synthesize Date/Server here (do NOT call ensureDefaultHeaders()).
+        // Use your helper that returns an RFC 1123 GMT string.
+        head.headers.set("Date", http_date_now_gmt());
+        head.headers.set("Server", "webserv/1.0");
+
+        // Serialize the head and queue it to the socket buffer.
+        std::ostringstream os;
+        os << head;
+        const std::string s = os.str();
+        io.getChainBuf().push_copy(s.data(), s.size());
+
+        // Switch to write phase; CGIStreamer will keep feeding chunks.
+        state = PH_WRITE;
+        resetDeadline(WR_TIMEOUT_MS);
+        return;
     }
 
-    // Synchronous path (static/proxy/put/patch):
-    // Decide keep-alive vs close (HTTP/1.1 keeps alive unless client asks to close)
-    const std::string connHdr = req.getHeaders().get("Connection");
-    should_close = (req.getHttpVer() == "HTTP/1.0") ||
-                   (connHdr == "close" || connHdr == "Close");
-
-    // Reflect policy in the response
+    // -------- Synchronous response (static/proxy/put/patch) --------
+    // Reflect the keep-alive policy.
     if (should_close)
         res.headers.set("Connection", "close");
     else
         res.headers.set("Connection", "keep-alive");
 
-    // Fill in defaults (Date, Server, Content-Length if applicable, etc.)
+    // Safe here: will add Content-Length/Date/Server if missing.
     res.ensureDefaultHeaders();
 
-    // Serialize → output buffer
+    // Serialize and queue.
     std::ostringstream os;
     os << res;
     const std::string s = os.str();
@@ -421,6 +515,10 @@ void ClientConnection::routeAndBuild()
     state = PH_WRITE;
     resetDeadline(WR_TIMEOUT_MS);
 }
+
+
+
+
 
 
 

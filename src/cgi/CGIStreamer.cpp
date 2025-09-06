@@ -20,11 +20,26 @@
 #include <sstream>
 #include <ctime>
 #include <sys/time.h>   // <-- add this
+#include <ctype.h>   // tolower
+#include <signal.h>  // SIGKILL (if you still kill by pid)
+
+
+
 
 /***---------------------------CGI PROCCESSING AND EXECUTION--------------------------- ***/
 
 // CGIStreamer.cpp
 #include <unistd.h> // ::close
+
+/* void CGIStreamer::closeStdin() {
+    if (cgi_in_fd >= 0) {
+        ::close(cgi_in_fd);
+        cgi_in_fd = -1;
+    }
+} */
+
+
+
 
 /* static std::string http_date_now_gmt()
 {
@@ -56,6 +71,27 @@ static const char *reason_for(int code)
     }
 } */
 
+namespace {
+    static bool iequals(const std::string& a, const std::string& b) {
+        if (a.size() != b.size()) return false;
+        for (std::string::size_type i = 0; i < a.size(); ++i) {
+            unsigned char ca = static_cast<unsigned char>(a[i]);
+            unsigned char cb = static_cast<unsigned char>(b[i]);
+            if (std::tolower(ca) != std::tolower(cb)) return false;
+        }
+        return true;
+    }
+
+    /* static void rstrip_cr(std::string& s) {
+        if (!s.empty() && s[s.size() - 1] == '\r')
+            s.erase(s.size() - 1);
+    } */
+}
+
+
+
+
+
 void CGIStreamer::closeStdin()
 {
     if (cgi_in_fd >= 0) {
@@ -64,23 +100,34 @@ void CGIStreamer::closeStdin()
     }
     // Important: Event loop must stop polling this fd once it sees -1.
 }
+void CGIStreamer::closeStdout() {
+    if (cgi_out_fd >= 0) { ::close(cgi_out_fd); cgi_out_fd = -1; }
+}
 
 
 std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
 {
-    const std::size_t avail = outBuffer.size() - outOffset;
-    if (avail == 0) return 0;
+    std::size_t moved = 0;
+    while (outOffset < outBuffer.size() && moved < max_bytes)
+    {
+        const std::size_t avail = outBuffer.size() - outOffset;
+        const std::size_t chunk  = (avail < (max_bytes - moved)) ? avail : (max_bytes - moved);
+        if (chunk == 0) break;
 
-    std::size_t n = (avail < max_bytes) ? avail : max_bytes;
-    out.push_copy(&outBuffer[outOffset], n);
-    outOffset += n;
+        out.push_copy(&outBuffer[outOffset], chunk);
+        outOffset += chunk;
+        moved     += chunk;
 
-    if (outOffset >= outBuffer.size()) {
-        outBuffer.clear();
-        outOffset = 0;
+        // compact if we’ve drained a lot
+        if (outOffset > 0 && outOffset == outBuffer.size()) {
+            outBuffer.clear();
+            outOffset = 0;
+            break;
+        }
     }
-    return n;
+    return moved;
 }
+
 
 
 
@@ -114,6 +161,150 @@ CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
     else
         body_path_.clear();
 }
+
+void CGIStreamer::parseOneHeaderLine(const std::string& line)
+{
+    // Split "Key: value"
+    std::string::size_type pos = line.find(':');
+    if (pos == std::string::npos) return;
+
+    std::string key = line.substr(0, pos);
+    std::string val;
+    if (pos + 1 < line.size() && line[pos + 1] == ' ')
+        val = line.substr(pos + 2);
+    else
+        val = line.substr(pos + 1);
+
+    // Special cases
+    if (iequals(key, "Status")) {
+        // "Status: 404 Not Found"
+        int code = 0;
+        std::string reason;
+        std::string::size_type sp = val.find(' ');
+        if (sp == std::string::npos) { code = Atoi::atoiHttpReq(val.c_str(), *(new bool(false))); }
+        else {
+            code = Atoi::atoiHttpReq(val.substr(0, sp).c_str(), *(new bool(false)));
+            reason = val.substr(sp + 1);
+        }
+        status_code_   = code;
+        status_reason_ = reason;
+        return;
+    }
+
+    if (iequals(key, "Set-Cookie")) {
+        set_cookie_.push_back(val); // keep multiple
+        return;
+    }
+
+    if (iequals(key, "Content-Type")) {
+        saw_content_type_ = true;
+        res.headers.set("Content-Type", val);
+        return;
+    }
+
+    // Default: copy through to response headers
+    res.headers.set(key, val);
+}
+
+
+void CGIStreamer::finalizeHeaders()
+{
+    // Default status
+    int status = status_code_ ? status_code_ : 200;
+    std::string reason = status_reason_.empty() ? "OK" : status_reason_;
+
+    if (!saw_content_type_) {
+        res.headers.set("Content-Type", "text/plain");
+    }
+
+    // Stream CGI output as chunked to client
+    chunked_mode = true;
+    res.headers.set("Transfer-Encoding", "chunked");
+
+    // Keep-alive by default (your server/pipeline may override)
+    res.headers.set("Connection", "keep-alive");
+
+    // Build minimal start line + headers
+    std::string head;
+    head.reserve(256);
+    head += "HTTP/1.1 ";
+    {
+        char tmp[16];
+        std::sprintf(tmp, "%d", status);
+        head += tmp;
+    }
+    head += " ";
+    head += reason;
+    head += "\r\n";
+
+    // Serialize headers (your Headers class supports printing via operator<< usually,
+    // but since we’re in minimal mode, call toString() if you have one; else iterate).
+    // If you don’t have an easy serializer here, you can at least write the fields you set:
+    head += "Content-Type: " + res.headers.get("Content-Type") + "\r\n";
+    head += "Transfer-Encoding: chunked\r\n";
+    head += "Connection: " + res.headers.get("Connection") + "\r\n";
+
+    // Multi Set-Cookie
+    for (std::vector<std::string>::size_type i = 0; i < set_cookie_.size(); ++i) {
+        head += "Set-Cookie: " + set_cookie_[i] + "\r\n";
+    }
+
+    head += "\r\n"; // end of header block
+
+    enqueueOut(head.data(), head.size());
+    cgi_headers_done = true;
+    hdr_state_ = HDR_DONE;
+}
+
+
+void CGIStreamer::timeout504()
+{
+    // Stop talking to the child
+    closeStdin();
+    closeStdout();
+
+    // If you *can* kill by pid via CgiProcess, do it (adjust to your API):
+    // if (proc.pid() > 0) ::kill(proc.pid(), SIGKILL);
+
+    // Don’t try to synthesize a response here if your connection owns that logic.
+    // Just mark inactive; the owner connection/timer should notice and fail 504.
+    cgi_active = false;
+}
+
+
+
+
+void CGIStreamer::enqueueOut(const char* data, std::size_t len)
+{
+    if (len == 0) return;
+
+    if (chunked_mode) {
+        // write: <hex>\r\n
+        char hex[32];
+        // C++98 safe: use %zx alternative via casting to unsigned long
+        // but %lx expects unsigned long, so convert len.
+        std::sprintf(hex, "%lx\r\n", static_cast<unsigned long>(len));
+        outBuffer.insert(outBuffer.end(), hex, hex + std::strlen(hex));
+
+        // write: data
+        outBuffer.insert(outBuffer.end(), data, data + len);
+
+        // write: \r\n
+        outBuffer.push_back('\r');
+        outBuffer.push_back('\n');
+    } else {
+        outBuffer.insert(outBuffer.end(), data, data + len);
+    }
+}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -232,163 +423,79 @@ bool CGIStreamer::parseCgiHeaders(std::string &buf, int &status, long &content_l
 
 void CGIStreamer::onCgiReadable(int fd)
 {
-    if (!cgi_active || fd != cgi_out_fd) return;
+    if (fd != cgi_out_fd || cgi_out_fd < 0) return;
 
-    // 1) Read as much as available into cgi_buf (non-blocking)
+    char buf[8192];
     for (;;)
     {
-        char tmp[8192];
-        ssize_t n = ::read(cgi_out_fd, tmp, sizeof(tmp));
-        if (n > 0)
-        {
-            cgi_buf.append(tmp, n);
-        }
-        else if (n == 0)
-        {
-            // EOF from CGI stdout
-            // If headers not done, synthesize minimal headers now.
-            if (!cgi_headers_done)
-            {
-                // No headers parsed → default to 200 + text/plain
-                cgi_status = (cgi_status ? cgi_status : 200);
-                if (cgi_content_len < 0) chunked_mode = true;
+        ssize_t r = ::read(cgi_out_fd, buf, sizeof(buf));
+        if (r > 0) {
+            const char* p = buf;
+            std::size_t n = (std::size_t)r;
 
-                std::string hdr;
-                {
-                    std::ostringstream oss;
-                    oss << "HTTP/1.1 " << cgi_status << " OK\r\n";
+            // Strip CGI header preface once (lines until blank line)
+            if (!cgi_preface_stripped_) {
+                cgi_preface_buf_.append(p, n);
 
-                    // If you want to be safe, emit Content-Type if CGI sent none.
-                    // We don't track a header list here, so put a sensible default.
-                    oss << "Content-Type: text/plain\r\n";
-
-                    if (chunked_mode)
-                        oss << "Transfer-Encoding: chunked\r\n";
-                    else if (cgi_content_len >= 0)
-                        oss << "Content-Length: " << cgi_content_len << "\r\n";
-
-                    oss << "Connection: keep-alive\r\n";
-                    oss << "\r\n";
-                    hdr = oss.str();
+                // Find CRLFCRLF or LFLF
+                std::string::size_type cut = std::string::npos;
+                std::string::size_type k = cgi_preface_buf_.find("\r\n\r\n");
+                if (k != std::string::npos) cut = k + 4;
+                else {
+                    k = cgi_preface_buf_.find("\n\n");
+                    if (k != std::string::npos) cut = k + 2;
                 }
-                outBuffer.insert(outBuffer.end(), hdr.begin(), hdr.end());
-                cgi_headers_done = true;
+
+                if (cut == std::string::npos) {
+                    // need more header bytes before we can send any body
+                    continue;
+                }
+
+                // Drop preface; anything after 'cut' is body
+                if (cut < cgi_preface_buf_.size()) {
+                    const char* bodyp = cgi_preface_buf_.c_str() + cut;
+                    const std::size_t bodyn = cgi_preface_buf_.size() - cut;
+                    enqueueOut(bodyp, bodyn);   // chunked when chunked_mode == true
+                }
+                cgi_preface_buf_.clear();
+                cgi_preface_stripped_ = true;
+                continue;
             }
 
-            // Flush whatever body remains in cgi_buf, then send final chunk if needed.
-            if (chunked_mode)
-            {
-                // send pending body as one last chunk (if any)
-                if (!cgi_buf.empty())
-                {
-                    std::ostringstream head;
-                    head << std::hex << cgi_buf.size() << "\r\n";
-                    const std::string h = head.str();
-                    outBuffer.insert(outBuffer.end(), h.begin(), h.end());
-                    outBuffer.insert(outBuffer.end(), cgi_buf.begin(), cgi_buf.end());
-                    outBuffer.push_back('\r'); outBuffer.push_back('\n');
-                    cgi_buf.clear();
-                }
-                // terminating chunk
-                if (!sent_final_chunk)
-                {
-                    static const char end_chunk[] = "0\r\n\r\n";
-                    outBuffer.insert(outBuffer.end(), end_chunk, end_chunk + 5);
-                    sent_final_chunk = true;
-                }
-            }
-            else
-            {
-                // non-chunked: just append remaining bytes
-                if (!cgi_buf.empty())
-                {
-                    outBuffer.insert(outBuffer.end(), cgi_buf.begin(), cgi_buf.end());
-                    cgi_buf.clear();
-                }
+            // Normal body bytes → chunk them
+            enqueueOut(p, n);
+            continue;
+        }
+
+        if (r == 0) { // EOF from CGI
+            closeStdout();
+
+            // Finish chunked stream once
+             if (chunked_mode && !sent_final_chunk) {
+                static const char fin[] = "0\r\n\r\n";
+                outBuffer.insert(outBuffer.end(), fin, fin + sizeof(fin) - 1);
+                sent_final_chunk = true;
             }
 
-            ::close(cgi_out_fd);
-            cgi_out_fd = -1;
-            return;
-        }
-        else
-        {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                break; // nothing more for now
-            // read error: close stdout and bail
-            ::close(cgi_out_fd);
-            cgi_out_fd = -1;
-            return;
-        }
-    }
-
-    // 2) If headers aren’t done yet, try to parse them now.
-    if (!cgi_headers_done)
-    {
-        // parseCgiHeaders must remove the header block from cgi_buf when it returns true
-        if (!parseCgiHeaders(cgi_buf, cgi_status, cgi_content_len))
-            return; // need more bytes
-
-        // ======= THIS IS THE BLOCK YOU ASKED ABOUT =======
-        // If CGI didn't give Content-Length, stream with chunked encoding
-        if (cgi_content_len < 0) {
-            chunked_mode = true;
+            cgi_active = false;
+            break;
         }
 
-        // Build HTTP status line + headers once.
-        std::string hdr;
-        {
-            std::ostringstream oss;
-            oss << "HTTP/1.1 " << (cgi_status ? cgi_status : 200) << " OK\r\n";
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+            break;
 
-            // NOTE: If parseCgiHeaders extracted CGI-provided headers (e.g., Content-Type),
-            // you would emit them here. Since we don't keep a list in this snippet,
-            // at minimum ensure there's a Content-Type:
-            oss << "Content-Type: text/plain\r\n";
-
-            if (chunked_mode) {
-                oss << "Transfer-Encoding: chunked\r\n";
-            } else if (cgi_content_len >= 0) {
-                oss << "Content-Length: " << cgi_content_len << "\r\n";
-            }
-
-            oss << "Connection: keep-alive\r\n";
-            oss << "\r\n";
-            hdr = oss.str();
-        }
-
-        // Append header bytes once
-        outBuffer.insert(outBuffer.end(), hdr.begin(), hdr.end());
-
-        cgi_headers_done = true;
-    }
-
-    // 3) Move body bytes currently in cgi_buf to outBuffer
-    if (chunked_mode)
-    {
-        while (!cgi_buf.empty())
-        {
-            const std::size_t chunk_len = cgi_buf.size();
-            std::ostringstream head;
-            head << std::hex << chunk_len << "\r\n";
-            const std::string h = head.str();
-
-            outBuffer.insert(outBuffer.end(), h.begin(), h.end());              // chunk header
-            outBuffer.insert(outBuffer.end(), cgi_buf.begin(), cgi_buf.end());  // chunk data
-            outBuffer.push_back('\r'); outBuffer.push_back('\n');               // chunk trailer
-
-            cgi_buf.clear();
-        }
-    }
-    else
-    {
-        if (!cgi_buf.empty())
-        {
-            outBuffer.insert(outBuffer.end(), cgi_buf.begin(), cgi_buf.end());
-            cgi_buf.clear();
-        }
+        // hard error
+        closeStdout();
+        cgi_active = false;
+        break;
     }
 }
+
+
+
+
+
+
 
 void CGIStreamer::resetDeadlineForWrite()
 {
@@ -518,60 +625,98 @@ void CGIStreamer::onCgiWritable(int fd)
 
 
 
+
 // Analyze parsed headers and set internal markers for future enforcement.
 // We keep this minimal: detect Content-Length, Transfer-Encoding: chunked,
 // and Expect: 100-continue. Do not change state here; callers use these
 // markers to decide next actions.
 
+// CGIStreamer.cpp  — replace your beginCgi body with this version
 bool CGIStreamer::beginCgi(const CgiSpec &spec,
                            const std::string &script_path,
                            const std::vector<std::string> &envv)
 {
-    cgi_active = false;
-    cgi_headers_done = false;
-    cgi_status = 200;
-    cgi_content_len = -1;
+    // ---- Reset streaming state ----
+    cgi_active        = false;
+    cgi_headers_done  = false;        // connection already sent head
+    cgi_status        = 200;
+    cgi_content_len   = -1;
     cgi_buf.clear();
+
     outBuffer.clear();
-    outOffset = 0;
-    cgi_body_off = 0;
-    chunked_mode     = false;
-    sent_final_chunk = false;
+    outOffset         = 0;
 
+    cgi_body_off      = 0;
+    body_fd_          = -1;
+    body_off_         = 0;
+    body_path_        = req.isBodyOnDisk() ? req.getBodyFilePath() : std::string();
+
+    // We are NOT going to synthesize/forward CGI header preface here
+    hdr_state_        = HDR_DONE;
+    cgi_header_accum_.clear();
+    saw_content_type_ = false;
+    status_code_      = 0;
+    status_reason_.clear();
+    set_cookie_.clear();
+
+    // Output framing to client: chunked
+    chunked_mode          = true;
+    sent_final_chunk      = false;
+    cgi_preface_stripped_ = false;
+    cgi_preface_buf_.clear();
+
+    // Log (optional)
     std::fprintf(stderr,
-    "[CGI] begin: inFD=%d outFD=%d len=%zu disk=%d path=%s\n",
-    cgi_in_fd, cgi_out_fd,
-    (size_t)req.getBodyLength(),
-    req.isBodyOnDisk() ? 1 : 0,
-    req.isBodyOnDisk() ? req.getBodyFilePath().c_str() : "");
+        "[CGI] begin: inFD=%d outFD=%d len=%zu disk=%d path=%s\n",
+        cgi_in_fd, cgi_out_fd,
+        (size_t)req.getBodyLength(),
+        req.isBodyOnDisk() ? 1 : 0,
+        req.isBodyOnDisk() ? body_path_.c_str() : "");
 
-
+    // ---- Spawn the CGI process ----
     if (!proc.spawn(spec, script_path, envv))
         return false;
 
-    cgi_in_fd = proc.inFD();
-    cgi_out_fd = proc.outFD();
+    cgi_in_fd  = proc.inFD();   // server writes → child stdin
+    cgi_out_fd = proc.outFD();  // server reads  ← child stdout
 
-    // mark nonblocking, close-on-exec
-    if (cgi_in_fd >= 0)
-    {
-        int fl = fcntl(cgi_in_fd, F_GETFL, 0);
-        if (fl >= 0)
-            fcntl(cgi_in_fd, F_SETFL, fl | O_NONBLOCK);
-        fl = fcntl(cgi_in_fd, F_GETFD, 0);
-        if (fl >= 0)
-            fcntl(cgi_in_fd, F_SETFD, fl | FD_CLOEXEC);
+    // Ensure non-blocking + CLOEXEC (safe if already set)
+#ifdef F_GETFL
+    if (cgi_in_fd >= 0) {
+        int fl = ::fcntl(cgi_in_fd, F_GETFL, 0);
+        if (fl >= 0) ::fcntl(cgi_in_fd, F_SETFL, fl | O_NONBLOCK);
+        fl = ::fcntl(cgi_in_fd, F_GETFD, 0);
+        if (fl >= 0) ::fcntl(cgi_in_fd, F_SETFD, fl | FD_CLOEXEC);
     }
-    if (cgi_out_fd >= 0)
-    {
-        int fl = fcntl(cgi_out_fd, F_GETFL, 0);
-        if (fl >= 0)
-            fcntl(cgi_out_fd, F_SETFL, fl | O_NONBLOCK);
-        fl = fcntl(cgi_out_fd, F_GETFD, 0);
-        if (fl >= 0)
-            fcntl(cgi_out_fd, F_SETFD, fl | FD_CLOEXEC);
+    if (cgi_out_fd >= 0) {
+        int fl = ::fcntl(cgi_out_fd, F_GETFL, 0);
+        if (fl >= 0) ::fcntl(cgi_out_fd, F_SETFL, fl | O_NONBLOCK);
+        fl = ::fcntl(cgi_out_fd, F_GETFD, 0);
+        if (fl >= 0) ::fcntl(cgi_out_fd, F_SETFD, fl | FD_CLOEXEC);
     }
+#endif
+
+    // No request body? Close child's stdin so scripts don't hang on read()
+    if (req.getBodyLength() == 0)
+        closeStdin();
 
     cgi_active = (cgi_out_fd >= 0);
-    return true;
+    return cgi_active;
+}
+
+
+
+
+
+void CGIStreamer::onTick(unsigned long long now_ms) {
+    // header deadline while still waiting for headers
+    if (hdr_state_ == HDR_WAITING && hdr_deadline_.expired(now_ms)) {
+        timeout504();
+        return;
+    }
+    // total runtime deadline always applies
+    if (total_deadline_.expired(now_ms)) {
+        timeout504();
+        return;
+    }
 }
