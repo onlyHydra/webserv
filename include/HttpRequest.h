@@ -265,6 +265,8 @@ class HttpRequest
 		 */
 		string getBuffer(void) const;
 
+		std::string takeBuffer();
+
 		/**
 		 * @returns Headers from this response
 		 */

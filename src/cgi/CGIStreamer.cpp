@@ -467,11 +467,23 @@ void CGIStreamer::onCgiWritable(int fd)
 {
     if (!cgi_active_ || fd != cgi_in_fd_) return;
 
-    // ---- DISK-BACKED BODY ----
+    // If no stdin expected, close immediately.
+    const std::size_t total = req_.getBodyLength();
+    if (total == 0) { closeStdin(); return; }
+
+    if (cgi_body_off_ >= total) { closeStdin(); return; }
+
+    // Write at most this many bytes per syscall to avoid hogging the loop.
+    const std::size_t CHUNK = 16384u;
+
+    // =========================
+    // DISK-BACKED BODY
+    // =========================
     if (req_.isBodyOnDisk())
     {
         if (body_fd_ < 0) {
-            body_fd_ = ::open(body_path_.c_str(), O_RDONLY
+            body_fd_ = ::open(body_path_.c_str(),
+                              O_RDONLY
 #ifdef O_CLOEXEC
                               | O_CLOEXEC
 #endif
@@ -484,85 +496,92 @@ void CGIStreamer::onCgiWritable(int fd)
             }
         }
 
-        // Authoritative total from HTTP layer (Content-Length)
-        const std::size_t total = req_.getBodyLength();
-        if (total == 0 || cgi_body_off_ >= total) {
-            closeStdin(); // we've sent all declared bytes (or nothing to send)
-            return;
-        }
-
-        char buf[8192];
         const std::size_t remaining = total - cgi_body_off_;
-        const std::size_t to_read   = (remaining < sizeof(buf)) ? remaining : sizeof(buf);
-        const off_t pos             = static_cast<off_t>(cgi_body_off_);
+        const std::size_t to_read   = (remaining < CHUNK) ? remaining : CHUNK;
+        if (to_read == 0) { closeStdin(); return; }
 
-        // Read from the temp file at the current logical offset.
-        // If pread() returns 0 while remaining > 0, the file hasn't been fully
-        // written yet — try again on the next POLLOUT (do NOT close stdin).
-        ssize_t r = ::pread(body_fd_, buf, to_read, pos);
+        char small[16384];
+        // pread() from the *logical* offset (stateless; safe on partial writes)
+        ssize_t r;
+        do {
+            r = ::pread(body_fd_, small, to_read,
+                        static_cast<off_t>(cgi_body_off_));
+        } while (r < 0 && errno == EINTR);
+
         if (r < 0) {
-            if (errno == EINTR || errno == EAGAIN) return;
-            // Hard error; stop feeding stdin.
-            closeStdin();
+            if (errno == EAGAIN) return;   // try again next POLLOUT
+            closeStdin();                  // hard error
             return;
         }
         if (r == 0) {
-            // Writer hasn't produced these bytes yet; we'll retry later.
+            // Producer (request reader) hasn’t flushed these bytes to disk yet; retry later
             return;
         }
 
-        // Bounded non-blocking write to child stdin.
-        ssize_t w = ::write(cgi_in_fd_, buf, r);
-        if (w < 0) {
-            if (errno == EINTR || errno == EAGAIN) return;
-            // Broken pipe or other hard error: close stdin and give up.
-            closeStdin();
-            return;
-        }
+        std::size_t want = static_cast<std::size_t>(r);
+        std::size_t sent = 0;
 
-        if (w > 0) {
-            cgi_body_off_ += static_cast<std::size_t>(w);
-            resetWriteDeadline();
-
-            // If we couldn't write all we read, the remainder will be retried
-            // on the next POLLOUT via another pread() from the updated offset.
-
-            if (cgi_body_off_ >= total) {
-                // Delivered exactly Content-Length bytes → EOF to CGI.
+        while (sent < want) {
+            ssize_t w = ::write(cgi_in_fd_, small + sent, want - sent);
+            if (w > 0) {
+                sent += static_cast<std::size_t>(w);
+                cgi_body_off_ += static_cast<std::size_t>(w);
+                resetWriteDeadline();
+                if (cgi_body_off_ >= total) { closeStdin(); return; }
+            } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                // Pipe full; we’ll retry from the same logical offset on next POLLOUT
+                break;
+            } else if (w < 0 && errno == EINTR) {
+                continue; // retry same write
+            } else {
+                // Broken pipe / other error
                 closeStdin();
+                return;
             }
         }
+
         return;
     }
 
-    // ---- IN-MEMORY BODY ----
-    const std::size_t total = req_.getBodyLength();
-    const std::vector<char>& b = req_.getBody();
+    // =========================
+    // IN-MEMORY BODY
+    // =========================
+    // IMPORTANT: getBody() returns by value in your code; own it locally.
+    std::vector<char> tmp = req_.getBody();
 
-    if (total == 0 || cgi_body_off_ >= total || cgi_body_off_ >= b.size()) {
+    if (cgi_body_off_ > total || cgi_body_off_ > tmp.size()) {
+        // Defensive: offset out of bounds
         closeStdin();
         return;
     }
 
-    const std::size_t remaining = total - cgi_body_off_;
-    std::size_t len = b.size() - cgi_body_off_;
-    if (len > remaining) len = remaining;   // never exceed Content-Length
-    if (len > 16384u) len = 16384u;         // bounded write
+    std::size_t remaining = total - cgi_body_off_;
+    std::size_t avail     = tmp.size() - cgi_body_off_;
+    std::size_t len       = (remaining < avail) ? remaining : avail;
+    if (len > CHUNK) len = CHUNK;
 
-    const char* p = &b[0] + cgi_body_off_;
+    if (len == 0) { closeStdin(); return; }
 
-    ssize_t w = ::write(cgi_in_fd_, p, len);
-    if (w < 0) {
-        if (errno == EINTR || errno == EAGAIN) return;
-        closeStdin();
-        return;
-    }
+    char small[16384];
+    std::memcpy(small, &tmp[0] + cgi_body_off_, len);
 
-    if (w > 0) {
-        cgi_body_off_ += static_cast<std::size_t>(w);
-        resetWriteDeadline();
-        if (cgi_body_off_ >= total || cgi_body_off_ >= b.size())
+    std::size_t sent = 0;
+    while (sent < len) {
+        ssize_t w = ::write(cgi_in_fd_, small + sent, len - sent);
+        if (w > 0) {
+            sent += static_cast<std::size_t>(w);
+            cgi_body_off_ += static_cast<std::size_t>(w);
+            resetWriteDeadline();
+            if (cgi_body_off_ >= total) { closeStdin(); return; }
+        } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Pipe full; retry next POLLOUT with the same logical offset
+            break;
+        } else if (w < 0 && errno == EINTR) {
+            continue; // retry same write
+        } else {
             closeStdin();
+            return;
+        }
     }
 }
 

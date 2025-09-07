@@ -11,7 +11,7 @@ date: 8/10/2025
 #include <fstream>
 
 
-static unsigned long long BUFFERLIMIT = 128 * 1048 ;
+static unsigned long long BUFFERLIMIT = 128 * 1024 ;
 
 /**
  * Wether given Method is a valid one
@@ -366,6 +366,16 @@ string HttpRequest::getBuffer(void) const
 {
 	return (this->buffer);
 }
+
+
+
+// in HttpRequest.cpp
+std::string HttpRequest::takeBuffer() {
+    std::string tmp;
+    tmp.swap(buffer);   // clears buffer and gives you the contents
+    return tmp;
+}
+
 
 const Headers &HttpRequest::getHeaders(void) const
 {
