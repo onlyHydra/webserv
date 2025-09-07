@@ -198,6 +198,19 @@ void ClientConnection::onTick(unsigned long long now_ms)
 {
     now_cached_ms = now_ms;
 
+    // Let CGI enforce its own header/total runtime deadlines.
+    // If it has already failed (timeout/spawn error), synthesize 504 and bail.
+    cgi.onTick(now_ms);
+    if (!cgi.isActive() && cgi.failed()) {
+        // Build the 504 and ensure we go through the normal write path
+        fail(504, "Gateway Timeout");     // fills headers/body into the ChainBuf
+        state = PH_WRITE;                 // do not jump to close; we must flush first
+        (void)io.nb_write();              // opportunistically flush now
+        resetDeadline(WR_TIMEOUT_MS);     // keep your existing write deadline helper
+        return;
+    }
+
+
     // 0) Pull any CGI bytes into the socket buffer BEFORE we attempt a write.
     //    (no-op if CGI inactive)
     if (cgi.hasOutBytes())
@@ -205,6 +218,11 @@ void ClientConnection::onTick(unsigned long long now_ms)
 
     // 1) Flow control based on queued output
     const std::size_t outbytes = io.getChainBuf().getByteSize();
+
+    // >>> back-pressure hint for CGI stdout reads
+    cgi.setClientWaterline(outbytes);
+    // <<<
+
     if (io.getFlow().shouldPauseRead(outbytes))
         io.getFlow().setReadPaused(true);
     if (io.getFlow().shouldResumeRead(outbytes))
@@ -286,6 +304,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
         return;
     }
 }
+
 
  bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
 
@@ -536,7 +555,7 @@ void ClientConnection::readBody()
 }
 
 
-#include <ctime>
+/* #include <ctime>
 #include <string>
 
 static std::string http_date_now_gmt()
@@ -552,7 +571,7 @@ static std::string http_date_now_gmt()
     if (std::strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &g))
         return std::string(buf);
     return std::string();
-}
+} */
 
 void ClientConnection::routeAndBuild()
 {
@@ -577,7 +596,7 @@ void ClientConnection::routeAndBuild()
         // We must send an HTTP head *now*. Do NOT add Content-Length here.
         // We *do* stream the body as chunked while the CGI produces it.
 
-        HttpResponse head;
+       /*  HttpResponse head;
         head.status = 200;
         head.reason = "OK";
 
@@ -595,7 +614,7 @@ void ClientConnection::routeAndBuild()
         std::ostringstream os;
         os << head;
         const std::string s = os.str();
-        io.getChainBuf().push_copy(s.data(), s.size());
+        io.getChainBuf().push_copy(s.data(), s.size()); */
 
         // Switch to write phase; CGIStreamer will keep feeding chunks.
         state = PH_WRITE;
