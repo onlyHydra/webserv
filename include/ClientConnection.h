@@ -104,6 +104,9 @@ class ClientConnection
 		size_t        body_received_;     // progresses to body_expected_
 		int           body_fd_;           // -1 if using RAM
 		std::string   body_path_;         // temp file path if body_fd_ >= 0
+		// in ClientConnection.h
+		bool cgi_error_latched;
+
 		static const size_t MEM_BODY_LIMIT = 32u * 1024u; // spill threshold
 		
 

@@ -200,15 +200,17 @@ void ClientConnection::onTick(unsigned long long now_ms)
 
     // Let CGI enforce its own header/total runtime deadlines.
     // If it has already failed (timeout/spawn error), synthesize 504 and bail.
+   // in ClientConnection::onTick()
     cgi.onTick(now_ms);
-    if (!cgi.isActive() && cgi.failed()) {
-        // Build the 504 and ensure we go through the normal write path
-        fail(504, "Gateway Timeout");     // fills headers/body into the ChainBuf
-        state = PH_WRITE;                 // do not jump to close; we must flush first
-        (void)io.nb_write();              // opportunistically flush now
-        resetDeadline(WR_TIMEOUT_MS);     // keep your existing write deadline helper
+    if (!cgi.isActive() && cgi.failed() && !cgi_error_latched) {
+        fail(504, "Gateway Timeout");     // queues one 504 and sets should_close
+        cgi_error_latched = true;         // <-- prevent re-appending 504s
+        state = PH_WRITE;
+        (void)io.nb_write();
+        resetDeadline(WR_TIMEOUT_MS);
         return;
     }
+
 
 
     // 0) Pull any CGI bytes into the socket buffer BEFORE we attempt a write.
@@ -669,6 +671,8 @@ void ClientConnection::finishWriteOrNext()
     route_selected = false;
 
     fixed_body_target_ = (std::size_t)-1;   // <— reset here too
+    // in ClientConnection::finishWriteOrNext(), before switching back to PH_READ_HEADERS
+    cgi_error_latched = false;
 
     state = PH_READ_HEADERS;
     resetDeadline(IDLE_TIMEOUT_MS);
