@@ -62,6 +62,7 @@ void EventLoop::removeFD(int fd)
 	{
 		if (_hs[idx])
 		{
+			delete _hs[idx];
 			_hs[idx] = 0;
 		}
 		_pfds[idx] = _pfds.back();
