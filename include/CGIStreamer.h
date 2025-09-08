@@ -74,6 +74,10 @@ public:
 
     // Hint from the connection: current client-socket queued bytes.
     void setClientWaterline(std::size_t bytesQueued) { client_out_bytes_ = bytesQueued; }
+    void reset();    
+
+    void pauseStdoutReads();
+void resumeStdoutReads();
 
 private:
     // ===== Header parsing helpers (implemented in .cpp) =====
@@ -140,6 +144,8 @@ private:
 
     // ---- Back-pressure hint from the connection ----
     std::size_t         client_out_bytes_; // last known queued bytes on client socket
+
+    bool stdout_paused_; 
 };
 
 #endif // CGI_STREAMER_H

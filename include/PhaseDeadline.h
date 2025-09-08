@@ -47,6 +47,9 @@ public:
     bool active() const { return active_; }
     unsigned long long when() const { return deadline_ms_; }
 
+    // NEW: explicit disarm
+    void clear() { deadline_ms_ = 0ULL; }
+
 private:
     bool active_;
     unsigned long long deadline_ms_;

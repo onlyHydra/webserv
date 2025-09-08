@@ -44,7 +44,7 @@ ClientConnection::ClientConnection(int fd, Server* s, unsigned long long nowMs)
 {
      // Wire the loop once
     cgi.attachLoop(&server->getLoop()); 
-    
+
 	ctx = new RouteDecision;
 	resetDeadline(HDR_TIMEOUT_MS);
 	struct sockaddr_storage ss;
@@ -201,32 +201,39 @@ void ClientConnection::onTick(unsigned long long now_ms)
 {
     now_cached_ms = now_ms;
 
-    // Let CGI enforce its own header/total runtime deadlines.
-    // If it has already failed (timeout/spawn error), synthesize 504 and bail.
-   // in ClientConnection::onTick()
+    // Let CGI enforce its own deadlines (header + total runtime)
     cgi.onTick(now_ms);
     if (!cgi.isActive() && cgi.failed() && !cgi_error_latched) {
-        fail(504, "Gateway Timeout");     // queues one 504 and sets should_close
-        cgi_error_latched = true;         // <-- prevent re-appending 504s
+        fail(504, "Gateway Timeout");
+        cgi_error_latched = true;
         state = PH_WRITE;
         (void)io.nb_write();
         resetDeadline(WR_TIMEOUT_MS);
         return;
     }
 
-
-
     // 0) Pull any CGI bytes into the socket buffer BEFORE we attempt a write.
-    //    (no-op if CGI inactive)
     if (cgi.hasOutBytes())
         (void)cgi.takeOutBytes(io.getChainBuf(), 128u * 1024u);
 
     // 1) Flow control based on queued output
     const std::size_t outbytes = io.getChainBuf().getByteSize();
-
-    // >>> back-pressure hint for CGI stdout reads
     cgi.setClientWaterline(outbytes);
-    // <<<
+
+    // ---- Back-pressure policy for CGI stdout reads (HIGH/LOW watermarks) ----
+    // Tune these if needed; goal is to stop growing memory when client is slow,
+    // and resume reading as soon as the socket drains enough.
+    const std::size_t HIGH_WATER = 192u * 1024u;  // pause when >= 192 KiB queued
+    const std::size_t LOW_WATER  = 64u  * 1024u;  // resume when <= 64 KiB queued
+
+    if (cgi.isActive()) {
+        if (outbytes >= HIGH_WATER) {
+            cgi.pauseStdoutReads();    // internally: loop_->modFD(cgi_out_fd, 0)
+        } else if (outbytes <= LOW_WATER) {
+            cgi.resumeStdoutReads();   // internally: loop_->modFD(cgi_out_fd, POLLIN)
+        }
+    }
+    // -------------------------------------------------------------------------
 
     if (io.getFlow().shouldPauseRead(outbytes))
         io.getFlow().setReadPaused(true);
@@ -236,16 +243,19 @@ void ClientConnection::onTick(unsigned long long now_ms)
     // 2) Try to flush whatever is queued (static or CGI)
     (void)io.nb_write();
 
+    // After flushing, we may have dropped below LOW_WATER; re-check to resume quickly.
+    if (cgi.isActive()) {
+        const std::size_t out_after = io.getChainBuf().getByteSize();
+        if (out_after <= LOW_WATER) cgi.resumeStdoutReads();
+    }
+
     // 3) Deadline enforcement
-    if (dl.expired(now_ms) && state != PH_CLOSE)
-    {
+    if (dl.expired(now_ms) && state != PH_CLOSE) {
         if (state == PH_READ_HEADERS || state == PH_READ_BODY ||
             state == PH_PRECHECK     || state == PH_ROUTE_SELECT)
         {
             fail(408, "Request Timeout");
-        }
-        else
-        {
+        } else {
             state = PH_CLOSE;
         }
         return;
@@ -255,53 +265,25 @@ void ClientConnection::onTick(unsigned long long now_ms)
     if (!io.getFlow().isReadPaused() &&
         (state == PH_READ_HEADERS || state == PH_READ_BODY))
     {
-        // Let nb_read() clamp to the ring’s write capacity.
         const std::size_t kAllYouCanEat = std::numeric_limits<std::size_t>::max();
         ssize_t r = io.nb_read(kAllYouCanEat);
-
-        if (r == 0) {
-            // Peer performed an orderly shutdown (EOF).
-            state = PH_CLOSE;
-            return;
-        }
+        if (r == 0) { state = PH_CLOSE; return; }
         // r < 0 => EAGAIN/other; ignore here.
     }
 
     // 5) Drive the HTTP/CGI state machine
     switch (state)
     {
-    case PH_READ_HEADERS:
-        parseHeaders();
-        break;
-
-    case PH_ROUTE_SELECT:
-        selectRouteOnce();
-        break;
-
-    case PH_PRECHECK:
-        runPreflight();
-        break;
-
-    case PH_READ_BODY:
-        readBody();
-        break;
-
-    case PH_ROUTE:
-        routeAndBuild();
-        break;
-
-    case PH_WRITE:
-        // May be static/proxy/put/patch response OR CGI streaming in progress.
-        finishWriteOrNext();
-        break;
-
+    case PH_READ_HEADERS:  parseHeaders();   break;
+    case PH_ROUTE_SELECT:  selectRouteOnce();break;
+    case PH_PRECHECK:      runPreflight();   break;
+    case PH_READ_BODY:     readBody();       break;
+    case PH_ROUTE:         routeAndBuild();  break;
+    case PH_WRITE:         finishWriteOrNext(); break;
     case PH_CLOSE:
-        // Stop reading; keep trying to flush any remaining bytes.
         io.getFlow().setReadPaused(true);
         (void)io.nb_write();
-
-        if (io.getChainBuf().getByteSize() == 0)
-        {
+        if (io.getChainBuf().getByteSize() == 0) {
             if (body) { delete body; body = 0; }
             req.cleanupBodyFile();
             ready_to_close = true;
@@ -309,6 +291,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
         return;
     }
 }
+
 
 
  bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);

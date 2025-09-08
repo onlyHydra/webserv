@@ -72,6 +72,8 @@ CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
     , write_deadline_ms_(0)
     , client_out_bytes_(0)
 {
+    stdout_paused_ = false;
+
 }
 
 CGIStreamer::~CGIStreamer()
@@ -108,6 +110,19 @@ void CGIStreamer::enqueueFinalChunk()
     out_buf_.insert(out_buf_.end(), fin, fin + sizeof(fin) - 1);
     sent_final_chunk_ = true;
 }
+
+void CGIStreamer::pauseStdoutReads() {
+    if (stdout_paused_) return;
+    if (loop_ && cgi_out_fd_ >= 0) loop_->modFD(cgi_out_fd_, 0);
+    stdout_paused_ = true;
+}
+
+void CGIStreamer::resumeStdoutReads() {
+    if (!stdout_paused_) return;
+    if (loop_ && cgi_out_fd_ >= 0) loop_->modFD(cgi_out_fd_, POLLIN);
+    stdout_paused_ = false;
+}
+
 
 // --- header parsing ---
 
@@ -216,26 +231,52 @@ void CGIStreamer::finalizeHeaders()
 
 void CGIStreamer::closeStdin() {
     if (cgi_in_fd_ >= 0) {
-        if (loop_) {
-            // Clear all interest on the fd (we only ever used POLLOUT for stdin).
-            (void)loop_->modFD(cgi_in_fd_, 0);
-        }
+        if (loop_) loop_->modFD(cgi_in_fd_, 0);   // stop POLLOUT
         ::close(cgi_in_fd_);
         cgi_in_fd_ = -1;
     }
 }
 
-
-
-
-
-void CGIStreamer::closeStdout()
-{
+void CGIStreamer::closeStdout() {
     if (cgi_out_fd_ >= 0) {
+        if (loop_) loop_->modFD(cgi_out_fd_, 0);  // stop POLLIN
         ::close(cgi_out_fd_);
         cgi_out_fd_ = -1;
     }
 }
+
+void CGIStreamer::reset() {
+    // stop timers/mark inactive AFTER fds are gone
+    closeStdin();
+    closeStdout();
+
+    failed_           = false;
+    cgi_active_       = false;
+
+    cgi_body_off_     = 0;
+    if (body_fd_ >= 0) { ::close(body_fd_); body_fd_ = -1; }
+    body_file_off_    = 0;
+    body_path_.clear();
+
+    hdr_state_        = HDR_WAITING;
+    cgi_header_accum_.clear();
+    saw_content_type_ = false;
+    status_code_      = 0;
+    status_reason_.clear();
+    set_cookie_.clear();
+
+    http_head_queued_ = false;
+    chunked_mode_     = true;
+    sent_final_chunk_ = false;
+    out_buf_.clear();
+    out_off_          = 0;
+
+    client_out_bytes_ = 0;
+    write_deadline_ms_= 0;
+    hdr_deadline_.clear();
+    total_deadline_.clear();
+}
+
 
 void CGIStreamer::resetWriteDeadline()
 {
@@ -277,6 +318,8 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     sent_final_chunk_  = false;
     out_buf_.clear();
     out_off_           = 0;
+    stdout_paused_ = false;
+
 
     // ---- spawn & set fds non-blocking ----
     if (!proc_.spawn(spec, script_path, envv))
@@ -306,18 +349,19 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
 
     if (cgi_out_fd_ < 0) { failed_ = true; return false; }
 
-    // ---- register with event loop ----
+    // ---- initial event-loop interest (right after O_NONBLOCK) ----
     if (loop_) {
-        loop_->modFD(cgi_out_fd_, POLLIN);   // always read child's stdout
-        const bool have_body = (req_.getBodyLength() > 0) || req_.isBodyOnDisk();
-        if (have_body && cgi_in_fd_ >= 0) {
-            loop_->modFD(cgi_in_fd_, POLLOUT);   // feed stdin only if needed
-        }
+        // always read child's stdout
+        loop_->modFD(cgi_out_fd_, POLLIN);
+        // be ready to feed child's stdin; if we later decide there's no body,
+        // closeStdin() will clear this and close the fd.
+        if (cgi_in_fd_ >= 0)
+            loop_->modFD(cgi_in_fd_, POLLOUT);
     }
 
-    // If no body, close stdin immediately so CGI won’t block on read()
+    // If no body at all, close stdin now so the CGI won’t block on read()
     if (req_.getBodyLength() == 0 && !req_.isBodyOnDisk())
-        closeStdin();
+        closeStdin(); // this also clears POLLOUT via loop_->modFD(fd, 0)
 
     // ---- deadlines ----
     struct timeval tv; ::gettimeofday(&tv, 0);
@@ -330,11 +374,12 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
 
     hdr_deadline_.reset(now_ms, HDR_WAIT_MS);
     total_deadline_.reset(now_ms, TOTAL_LIMIT_MS);
-    resetWriteDeadline();
+    resetWriteDeadline();   // arms WRITE_TIMEOUT_MS from "now"
 
     cgi_active_ = true;
     return true;
 }
+
 
 void CGIStreamer::startHeaderPhase(unsigned long long now_ms)
 {
@@ -359,45 +404,47 @@ void CGIStreamer::onTick(unsigned long long now_ms)
     }
 }
 
-std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
-{
-    std::size_t moved = 0;
-    while (out_off_ < out_buf_.size() && moved < max_bytes)
-    {
-        const std::size_t avail = out_buf_.size() - out_off_;
-        const std::size_t chunk = (avail < (max_bytes - moved)) ? avail : (max_bytes - moved);
-        if (chunk == 0) break;
-        out.push_copy(&out_buf_[out_off_], chunk);
-        out_off_ += chunk;
-        moved    += chunk;
-
-        // Compact if fully drained to keep memory usage bounded.
-        if (out_off_ == out_buf_.size()) {
-            out_buf_.clear();
-            out_off_ = 0;
-            break;
-        }
+std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes) {
+    if (out_off_ >= out_buf_.size()) {
+        out_buf_.clear();
+        out_off_ = 0;
+        return 0;
     }
-    return moved;
+    std::size_t avail = out_buf_.size() - out_off_;
+    std::size_t n = (max_bytes < avail) ? max_bytes : avail;
+
+    if (n == 0) return 0;
+
+    out.push_copy(&out_buf_[out_off_], n);
+    out_off_ += n;
+
+    if (out_off_ == out_buf_.size()) {
+        out_buf_.clear();
+        out_off_ = 0;
+    }
+    return n;
 }
+
 
 // --- I/O driving ---
 
 void CGIStreamer::onCgiReadable(int fd)
 {
-    if (fd != cgi_out_fd_ || cgi_out_fd_ < 0) return;
+    if (!cgi_active_ || fd != cgi_out_fd_ || cgi_out_fd_ < 0) return;
     if (!wantsRead()) return; // back-pressure: defer reading
 
-    char buf[8192];
     for (;;)
     {
+        char buf[16384];
         ssize_t r = ::read(cgi_out_fd_, buf, sizeof(buf));
+
         if (r > 0)
         {
             const char* p = buf;
             std::size_t n = static_cast<std::size_t>(r);
 
-            if (hdr_state_ == HDR_WAITING) {
+            if (hdr_state_ == HDR_WAITING)
+            {
                 // Accumulate until CRLFCRLF or LFLF
                 cgi_header_accum_.append(p, n);
 
@@ -409,35 +456,31 @@ void CGIStreamer::onCgiReadable(int fd)
                     if (k != std::string::npos) cut = k + 2;
                 }
 
-                if (cut == std::string::npos) {
-                    // Heuristic: if first line lacks ":" or grows too large,
-                    // treat as body directly.
-                    bool first_has_colon = false;
+                if (cut == std::string::npos)
+                {
+                    // Heuristic: if first line lacks ":" or headers grow too large,
+                    // treat the whole thing as body.
                     std::string::size_type eol = cgi_header_accum_.find_first_of("\r\n");
                     std::string first = (eol == std::string::npos)
                         ? cgi_header_accum_ : cgi_header_accum_.substr(0, eol);
-                    first_has_colon = (first.find(':') != std::string::npos);
+                    const bool first_has_colon = (first.find(':') != std::string::npos);
 
                     if (!first_has_colon || cgi_header_accum_.size() > 8192u) {
-                        // Ensure head is queued BEFORE any body goes out
-                        if (!http_head_queued_) finalizeHeaders();
-
-                        if (!cgi_header_accum_.empty()) {
-                            // enqueue data strictly AFTER finalizeHeaders()
+                        if (!http_head_queued_) finalizeHeaders(); // synthesize safe head
+                        if (!cgi_header_accum_.empty())
                             enqueueOut(cgi_header_accum_.data(), cgi_header_accum_.size());
-                        }
                         cgi_header_accum_.clear();
                         hdr_state_ = HDR_DONE;
                     }
-                    continue; // wait for more bytes (or just flipped to DONE)
+                    // else: keep waiting for header terminator
+                    continue;
                 }
 
-                // We have a header block → parse it line-by-line
+                // We have a complete header block → parse it line-by-line
                 const std::string hdr = cgi_header_accum_.substr(0, cut);
                 std::string line;
                 for (std::string::size_type i = 0; i < hdr.size(); )
                 {
-                    // consume a line
                     std::string::size_type j = i;
                     while (j < hdr.size() && hdr[j] != '\r' && hdr[j] != '\n') ++j;
                     line.assign(hdr, i, j - i);
@@ -449,14 +492,12 @@ void CGIStreamer::onCgiReadable(int fd)
                         parseOneHeaderLine(line);
                 }
 
-                // Anything after the terminator is body → enqueue it
+                // Anything after the terminator is body
+                if (!http_head_queued_) finalizeHeaders();
                 if (cut < cgi_header_accum_.size()) {
                     const char* bp = cgi_header_accum_.data() + cut;
                     const std::size_t bn = cgi_header_accum_.size() - cut;
-                    if (!http_head_queued_) finalizeHeaders();
-                    enqueueOut(bp, bn);
-                } else {
-                    if (!http_head_queued_) finalizeHeaders();
+                    if (bn) enqueueOut(bp, bn);
                 }
 
                 cgi_header_accum_.clear();
@@ -464,32 +505,43 @@ void CGIStreamer::onCgiReadable(int fd)
                 continue;
             }
 
-            // Normal body streaming
-            if (!http_head_queued_) finalizeHeaders();
+            // Normal body streaming (headers already finalized)
+            if (!http_head_queued_) finalizeHeaders(); // safety net
             enqueueOut(p, n);
             continue;
         }
 
         if (r == 0)  // EOF from CGI
         {
+            // Make sure we have emitted an HTTP head even if CGI sent no headers
+            if (!http_head_queued_) {
+                // If you want to treat "no CGI header at all" as error, set failed_=true here instead.
+                finalizeHeaders();
+            }
+
+            // Close stdout and enqueue the terminating chunk if chunked
             closeStdout();
-            if (!http_head_queued_) finalizeHeaders(); // synthesize head if CGI produced no headers
-            enqueueFinalChunk();
-            cgi_active_ = false;
-            break;
+            if (chunked_mode_ && !sent_final_chunk_) {
+                enqueueFinalChunk();     // "0\r\n\r\n"
+                sent_final_chunk_ = true;
+            }
+
+            cgi_active_ = false;         // streamer done producing
+            return;
         }
 
         // r < 0
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-            break;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
 
-        // Hard error → stop
+        // Hard error → stop this CGI cleanly
         closeStdout();
         cgi_active_ = false;
         failed_ = true;
-        break;
+        return;
     }
 }
+
 
 void CGIStreamer::onCgiWritable(int fd)
 {
@@ -555,7 +607,10 @@ void CGIStreamer::onCgiWritable(int fd)
                 sent += static_cast<std::size_t>(w);
                 cgi_body_off_ += static_cast<std::size_t>(w);
                 resetWriteDeadline();
-                if (cgi_body_off_ >= total) { closeStdin(); return; }
+                if (cgi_body_off_ >= total) { 
+                    closeStdin(); 
+                    return; 
+                }
             } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 // Pipe full; we’ll retry from the same logical offset on next POLLOUT
                 break;
