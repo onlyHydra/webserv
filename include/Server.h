@@ -69,7 +69,7 @@ Date: 8/10/2025
 class Server
 {
 	private:
-		EventLoop loop;
+		EventLoop loop_;
 		ServerConfig &srvConfig;
 		std::vector<Listener*> listeners;
 		std::map<int, std::map<std::string, int> > host_map_by_port; // port -> (host -> vs_index)
@@ -219,6 +219,7 @@ class Server
 		 * @note Safe to destroy a Server that was never started or already stopped.
 		 */
 		~Server();
+		EventLoop& getLoop();  
 		
 		/**
 		 * @brief Starts the server and begins accepting connections.
@@ -314,7 +315,7 @@ class Server
 		{
 			if (!c) return;
 
-			loop.removeOwner(c);
+			loop_.removeOwner(c);
 
 			for (std::set<ClientHandler*>::iterator it = server_handlers.begin();
 				it != server_handlers.end(); ++it)
@@ -327,7 +328,7 @@ class Server
 					break;
 				}
 			}
-			loop.removeFD(c->getFD());
+			loop_.removeFD(c->getFD());
 			delete c;
 		}
 

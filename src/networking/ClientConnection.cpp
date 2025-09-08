@@ -42,6 +42,9 @@ ClientConnection::ClientConnection(int fd, Server* s, unsigned long long nowMs)
 
 
 {
+     // Wire the loop once
+    cgi.attachLoop(&server->getLoop()); 
+    
 	ctx = new RouteDecision;
 	resetDeadline(HDR_TIMEOUT_MS);
 	struct sockaddr_storage ss;

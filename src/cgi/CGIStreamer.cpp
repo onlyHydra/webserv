@@ -3,19 +3,22 @@
 #include "HttpResponse.h"
 #include "ChainBuf.h"
 #include "CgiProcess.h"
-
+#include "EventLoop.h"  
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <sstream>
 #include <vector>
-
+#include <poll.h>   // POLLIN, POLLOUT
 #include <fcntl.h>      // fcntl, O_NONBLOCK, FD_CLOEXEC
 #include <signal.h>     // SIGKILL
 #include <sys/stat.h>   // fstat
 #include <sys/time.h>   // gettimeofday
 #include <unistd.h>     // read, write, pread, close
+#include <sys/time.h> // gettimeofday
+
+// void CGIStreamer::attachLoop(EventLoop* L) { loop_ = L; }
 
 // --- tiny helper: RFC1123 Date string (GMT) ---
 static std::string http_date_now_gmt()
@@ -209,13 +212,22 @@ void CGIStreamer::finalizeHeaders()
 
 // --- stdin/stdout helpers ---
 
-void CGIStreamer::closeStdin()
-{
+#include <poll.h>  // POLLIN, POLLOUT
+
+void CGIStreamer::closeStdin() {
     if (cgi_in_fd_ >= 0) {
+        if (loop_) {
+            // Clear all interest on the fd (we only ever used POLLOUT for stdin).
+            (void)loop_->modFD(cgi_in_fd_, 0);
+        }
         ::close(cgi_in_fd_);
         cgi_in_fd_ = -1;
     }
 }
+
+
+
+
 
 void CGIStreamer::closeStdout()
 {
@@ -240,11 +252,12 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
                            const std::string &script_path,
                            const std::vector<std::string> &envv)
 {
-    // Reset runtime state
+    // ---- reset runtime state ----
     failed_            = false;
     cgi_active_        = false;
-    cgi_in_fd_         = -1;
-    cgi_out_fd_        = -1;
+
+    cgi_in_fd_         = -1;   // server → child stdin (we write here)
+    cgi_out_fd_        = -1;   // child  → server stdout (we read here)
 
     cgi_body_off_      = 0;
     if (body_fd_ >= 0) { ::close(body_fd_); body_fd_ = -1; }
@@ -260,52 +273,67 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
     set_cookie_.clear();
 
     http_head_queued_  = false;
-    chunked_mode_      = true;   // data after head is chunked
+    chunked_mode_      = true;
     sent_final_chunk_  = false;
     out_buf_.clear();
     out_off_           = 0;
 
-    // Spawn the CGI process
+    // ---- spawn & set fds non-blocking ----
     if (!proc_.spawn(spec, script_path, envv))
         return false;
 
-    cgi_in_fd_  = proc_.inFD();   // server writes → child stdin
-    cgi_out_fd_ = proc_.outFD();  // server reads  ← child stdout
+    cgi_in_fd_  = proc_.inFD();
+    cgi_out_fd_ = proc_.outFD();
 
 #ifdef F_GETFL
     if (cgi_in_fd_ >= 0) {
         int fl = ::fcntl(cgi_in_fd_, F_GETFL, 0);
         if (fl >= 0) ::fcntl(cgi_in_fd_, F_SETFL, fl | O_NONBLOCK);
+#ifdef F_GETFD
         fl = ::fcntl(cgi_in_fd_, F_GETFD, 0);
         if (fl >= 0) ::fcntl(cgi_in_fd_, F_SETFD, fl | FD_CLOEXEC);
+#endif
     }
     if (cgi_out_fd_ >= 0) {
         int fl = ::fcntl(cgi_out_fd_, F_GETFL, 0);
         if (fl >= 0) ::fcntl(cgi_out_fd_, F_SETFL, fl | O_NONBLOCK);
+#ifdef F_GETFD
         fl = ::fcntl(cgi_out_fd_, F_GETFD, 0);
         if (fl >= 0) ::fcntl(cgi_out_fd_, F_SETFD, fl | FD_CLOEXEC);
+#endif
     }
 #endif
 
-    // If no request body, close child's stdin immediately.
+    if (cgi_out_fd_ < 0) { failed_ = true; return false; }
+
+    // ---- register with event loop ----
+    if (loop_) {
+        loop_->modFD(cgi_out_fd_, POLLIN);   // always read child's stdout
+        const bool have_body = (req_.getBodyLength() > 0) || req_.isBodyOnDisk();
+        if (have_body && cgi_in_fd_ >= 0) {
+            loop_->modFD(cgi_in_fd_, POLLOUT);   // feed stdin only if needed
+        }
+    }
+
+    // If no body, close stdin immediately so CGI won’t block on read()
     if (req_.getBodyLength() == 0 && !req_.isBodyOnDisk())
         closeStdin();
 
-    // Arm deadlines
+    // ---- deadlines ----
     struct timeval tv; ::gettimeofday(&tv, 0);
-    unsigned long long now_ms =
+    const unsigned long long now_ms =
         (unsigned long long)tv.tv_sec * 1000ULL +
         (unsigned long long)tv.tv_usec / 1000ULL;
 
-    const int HDR_WAIT_MS     = 10000;   // 3s to receive CGI headers
-    const int TOTAL_LIMIT_MS  = 60000;  // 15s total CGI lifetime
+    const int HDR_WAIT_MS    = 3000;   // header-phase timeout
+    const int TOTAL_LIMIT_MS = 15000;  // total runtime timeout
 
     hdr_deadline_.reset(now_ms, HDR_WAIT_MS);
     total_deadline_.reset(now_ms, TOTAL_LIMIT_MS);
     resetWriteDeadline();
 
-    cgi_active_ = (cgi_out_fd_ >= 0);
-    return cgi_active_;
+    cgi_active_ = true;
+    return true;
 }
 
 void CGIStreamer::startHeaderPhase(unsigned long long now_ms)
@@ -549,18 +577,10 @@ void CGIStreamer::onCgiWritable(int fd)
     // IMPORTANT: getBody() returns by value in your code; own it locally.
     std::vector<char> tmp = req_.getBody();
 
-    if (cgi_body_off_ > total || cgi_body_off_ > tmp.size()) {
-        // Defensive: offset out of bounds
-        closeStdin();
-        return;
-    }
-
     std::size_t remaining = total - cgi_body_off_;
     std::size_t avail     = tmp.size() - cgi_body_off_;
     std::size_t len       = (remaining < avail) ? remaining : avail;
-    if (len > CHUNK) len = CHUNK;
-
-    if (len == 0) { closeStdin(); return; }
+    if (len > 16384u) len = 16384u;
 
     char small[16384];
     std::memcpy(small, &tmp[0] + cgi_body_off_, len);
@@ -569,17 +589,15 @@ void CGIStreamer::onCgiWritable(int fd)
     while (sent < len) {
         ssize_t w = ::write(cgi_in_fd_, small + sent, len - sent);
         if (w > 0) {
-            sent += static_cast<std::size_t>(w);
-            cgi_body_off_ += static_cast<std::size_t>(w);
+            sent += static_cast<size_t>(w);
+            cgi_body_off_ += static_cast<size_t>(w);
             resetWriteDeadline();
             if (cgi_body_off_ >= total) { closeStdin(); return; }
-        } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // Pipe full; retry next POLLOUT with the same logical offset
-            break;
-        } else if (w < 0 && errno == EINTR) {
-            continue; // retry same write
         } else {
-            closeStdin();
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return; // wait for POLLOUT
+            if (errno == EINTR) continue;                        // retry immediately
+            if (errno == EPIPE) { closeStdin(); return; }        // child closed stdin
+            closeStdin();                                        // other fatal error
             return;
         }
     }
