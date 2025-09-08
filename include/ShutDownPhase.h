@@ -1,0 +1,13 @@
+#if !defined( SHUTDOWNPHASE_H)
+#define  SHUTDOWNPHASE_H
+
+
+enum ShutdownPhase{
+	RUNNING,
+	QUIESCING,
+	DRAINING,
+	REAPING,
+	STOPPED,
+};
+
+#endif //  SHUTDOWNPHASE_H

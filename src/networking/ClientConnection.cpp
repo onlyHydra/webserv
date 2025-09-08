@@ -151,7 +151,6 @@ void ClientConnection::onTick(unsigned long long now_ms)
 			}
 		req.cleanupBodyFile();
 		ready_to_close = true;
-		// server->releaseConnection(this);
 		return;
 	}
 }
@@ -383,6 +382,11 @@ void ClientConnection::routeAndBuild()
 	else
 		res.headers.set("Connection", "keep-alive");
 
+	if (close_soon) 
+	{
+		res.headers.set("Connection", "close");
+		state = PH_CLOSE;
+	}
 	// Fill in defaults (Date, Server, Content-Length if applicable, etc.)
 	res.ensureDefaultHeaders();
 

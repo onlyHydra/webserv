@@ -43,6 +43,18 @@ class ClientConnection
 		void close();
 
 		int getFD() {return io.getFD();}
+
+		void requestCloseSoon() { close_soon = true;}
+
+		void disableReads();
+
+		bool isIdleWaitingForNextRequest() const;
+
+		void shutdownWrite();
+		
+		void forceClose();
+
+		void killCGIIfNotResponding();
 		
 	private:
 		void parseHeaders();
@@ -80,6 +92,8 @@ class ClientConnection
 		int flush_no_progress_ticks;
 		unsigned long long now_cached_ms;
 		bool ready_to_close;
+		bool close_soon;
+
 
 		enum
 		{

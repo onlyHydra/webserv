@@ -20,6 +20,7 @@ Date: 8/10/2025
 #include "ClientConnection.h"
 #include "ServerPipeline.h"
 #include "ClientHandler.h"
+#include "ShutDownPhase.h"
 #include <vector>
 #include <string>
 #include <poll.h>
@@ -76,6 +77,15 @@ class Server
 		std::map<int, int> default_vs_by_port;						 // port -> default vs_index
 		ServerPipeline	*serverpipeline;
 		std::set<ClientHandler*> server_handlers;
+		ShutdownPhase phase;
+
+		unsigned long shutdown_grace_ms;
+		unsigned long shutdown_hard_ms;
+		unsigned long long grace_deadline;
+		unsigned long long hard_deadline_ms;
+	
+		
+		std::vector<ClientHandler*>reapQ;
 		/**
 		 * @brief Creates a raw listening socket for the specified host and port.
 		 *
@@ -189,6 +199,9 @@ class Server
 		  }
 
 	public:
+		int sigpipe_rd;
+		int sigpipe_wr;
+
 		/**
 		 * @brief Constructs a Server instance with the given configuration.
 		 *
@@ -329,6 +342,11 @@ class Server
 				}
 			}
 		}
+
+		void initSignals();
+		void onSignalByte();
+		void beginQuiesce(int signo);
+		void driveShutdownTick();
 
 
 		#ifdef UNIT_TEST

@@ -17,16 +17,35 @@ date: 8/10/2025
 #include <cerrno>
 #include <cstring>
 #include <sstream>
+#include <csignal>
 #include <set>
 #include "UniqueFD.h"
 #include "AcceptorHandler.h"
+
+
+static Server* g_srv = 0;
+
+
+static volatile sig_atomic_t g_sigflag = 0;
+
+
+extern "C" void sig_handler(int signo)
+{
+	g_sigflag = signo; // record which signal arrived (last one wins)
+	if (g_srv && g_srv->sigpipe_wr >= 0) {
+		char b = 1;
+		ssize_t r = write(g_srv->sigpipe_wr, &b, 1);
+		(void)r;
+	}
+}
 
 static void throwErr(const char *what)
 {
 	throw std::runtime_error(std::string(what) + ": " + std::strerror(errno));
 }
 
-Server::Server(ServerConfig &srvConfig) : srvConfig(srvConfig)
+Server::Server(ServerConfig &srvConfig) : srvConfig(srvConfig), shutdown_grace_ms(2000), shutdown_hard_ms(5000),
+grace_deadline(0),hard_deadline_ms(0),sigpipe_rd(-1),sigpipe_wr(-1)
 {
 	this->loop = EventLoop();
 	serverpipeline = new ServerPipeline();
@@ -324,7 +343,29 @@ void Server::start()
 
 void Server::run(int poll_timeout_ms) {
 	if (listeners.empty()) start();
-	loop.run(poll_timeout_ms);
+	g_srv = this;
+	initSignals();
+	phase = RUNNING;
+	while (phase != STOPPED) 
+	{
+		loop.runOnce(tick_ms);
+
+
+		onTickAllConnections(TimeUtil::nowMs());
+
+		if (phase != RUNNING)
+		driveShutdownTick();
+
+		drainReap();
+
+		if (phase == DRAINING && server_handlers.empty())
+		phase = STOPPED;
+	}
+
+// final cleanup
+	if (sigpipe_rd >= 0) { loop.removeFD(sigpipe_rd); close(sigpipe_rd); sigpipe_rd = -1; }
+	if (sigpipe_wr >= 0) { close(sigpipe_wr); sigpipe_wr = -1; }
+	g_srv = 0;
 }
 
 static std::string normalize_host(const std::string &h)
@@ -364,4 +405,118 @@ int Server::resolveVirtualServerByPort(int localPort, const std::string &hostHdr
 const ServerConfig& Server::getConfig()const
 {
 	return srvConfig;
+}
+
+void Server::initSignals() {
+	int p[2];
+	if (::pipe(p) == -1) { /* handle fatal error */ }
+	sigpipe_rd = p[0]; sigpipe_wr = p[1];
+
+	// set nonblocking
+	fcntl(sigpipe_rd, F_SETFL, O_NONBLOCK);
+	fcntl(sigpipe_wr, F_SETFL, O_NONBLOCK);
+
+	// register sigpipe_rd in your EventLoop with a trivial handler
+	loop.addFD(sigpipe_rd, POLLIN, this /*owner*/, /*userdata*/ SIGPIPE_MAGIC);
+
+	// install handlers
+	struct sigaction sa; memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = sig_handler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;     // fine for us
+	sigaction(SIGINT,  &sa, 0);
+	sigaction(SIGTERM, &sa, 0);
+
+// optional: second signal forces hard stop
+// you can also add SIGQUIT to force immediate kill
+}
+
+
+void Server::onSignalByte()
+{
+	int signo = g_sigflag; // last signal observed
+	if (phase == RUNNING) {
+		beginQuiesce(signo);
+	} else {
+		// A second signal while shutting down => shorten the deadlines
+		hard_deadline_ms = TimeUtil::nowMs() + 200; // e.g. 200ms
+		grace_deadline = hard_deadline_ms;
+	}
+}
+
+
+void Server::beginQuiesce(int signo)
+{
+	if (phase != RUNNING) return;
+		phase = QUIESCING;
+
+	// 1) Close/unregister all listeners *first*
+	unregisterListeners();   // removeFD(listenfd); delete acceptor; delete Listener; clear vectors
+
+	// 2) Tell every active connection: no new requests; close when done
+	for (std::set<ClientHandler*>::iterator it = server_handlers.begin();
+		it != server_handlers.end(); ++it) {
+		ClientConnection* c = (*it)->conn();
+		if (!c) continue;
+		c->requestCloseSoon();   // you add this: set a flag used by response path
+		c->disableReads();       // stop accepting next request on keep-alive
+	}
+
+	// enter draining
+	phase = DRAINING;
+	const unsigned long long now = TimeUtil::nowMs();
+	grace_deadline = now + shutdown_grace_ms;
+	hard_deadline_ms  = now + shutdown_hard_ms;
+}
+
+
+void Server::driveShutdownTick() {
+	const unsigned long long now = TimeUtil::nowMs();
+
+	if (phase == DRAINING) {
+		// Optional: nudge idle keep-alive sockets to close now (no response in progress)
+		for (std::set<ClientHandler*>::iterator it = server_handlers.begin();
+			it != server_handlers.end(); ++it) {
+		ClientConnection* c = (*it)->conn();
+		if (!c) continue;
+
+		if (c->isIdleWaitingForNextRequest()) {
+			// Close immediately (send FIN); nothing to drain
+			c->shutdownWrite(); // or c->state(PH_CLOSE) and let handler flush close
+		}
+
+		// Kill CGIs that haven't produced headers before grace deadline
+		if (now >= grace_deadline)
+			c->killCGIIfNotResponding();
+		}
+
+		// If we’ve passed grace deadline — force-close remaining
+		if (now >= grace_deadline) {
+		for (std::set<ClientHandler*>::iterator it = server_handlers.begin();
+			it != server_handlers.end(); ++it) {
+			ClientConnection* c = (*it)->conn();
+			if (!c) continue;
+			c->forceClose();  // hard close: shutdown both dirs, mark PH_CLOSE
+		}
+		phase = REAPING;
+		}
+	}
+
+	if (phase == REAPING) {
+		// If no handlers left, we’re done
+		if (server_handlers.empty()) {
+		phase = STOPPED;
+		} else if (now >= hard_deadline_ms) {
+		// Safety: if anything still around, just reap anyway
+		for (std::set<ClientHandler*>::iterator it = server_handlers.begin();
+			it != server_handlers.end(); ) {
+			ClientHandler* h = *it++;
+			loop.removeOwner(h->conn());
+			if (loop.indexOfFD(h->conn()->fd()) >= 0) loop.removeFD(h->conn()->fd());
+			server_handlers.erase(h);
+			delete h;
+		}
+		phase = STOPPED;
+		}
+	}
 }
