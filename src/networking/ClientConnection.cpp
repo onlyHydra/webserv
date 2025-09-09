@@ -54,23 +54,29 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 
 ClientConnection::~ClientConnection()
 {
-	if(server)
+
+	if (server)
 		server = 0;
 	if (ctx)
 	{
 		delete ctx;
 		ctx = 0;
 	}
-	
+	if (body)
+	{
+		delete body;
+		body = 0;
+	}
+	req.cleanupBodyFile();
 }
 
 bool ClientConnection::isClosed() const { return state == PH_CLOSE; }
 bool ClientConnection::hasPendingWrite() { return io.getChainBuf().getByteSize() != 0; }
 bool ClientConnection::isReadPaused() { return io.getFlow().isReadPaused(); }
-void ClientConnection::close() 
+void ClientConnection::close()
 
 {
-	server->releaseConnection(this); 
+	server->releaseConnection(this);
 }
 
 bool ClientConnection::wantsRead()
@@ -105,7 +111,8 @@ void ClientConnection::onTick(unsigned long long now_ms)
 	}
 
 	if (!io.getFlow().isReadPaused() && (state == PH_READ_HEADERS || state == PH_READ_BODY))
-		if(io.nb_read(32 * 1024) == 0 ){
+		if (io.nb_read(32 * 1024) == 0)
+		{
 			state = PH_CLOSE;
 			return;
 		}
@@ -154,16 +161,16 @@ void ClientConnection::parseHeaders()
 	const char *buf = io.getInputRing().readPtr();
 	std::size_t avail = io.getInputRing().readAvail();
 	if (avail == 0)
-	return;
-	
-	if(!req.parse(buf, avail))
+		return;
+
+	if (!req.parse(buf, avail))
 	{
-		if(errno == HTTP_BAD_REQUEST || errno == HTTP_HEADER_TOO_BIG)
-			fail(errno,"");
+		if (errno == HTTP_BAD_REQUEST || errno == HTTP_HEADER_TOO_BIG)
+			fail(errno, "");
 	}
-	
+
 	std::size_t used = avail;
-	
+
 	if (used > 0)
 	{
 		io.getInputRing().consumed(used);
@@ -197,12 +204,12 @@ void ClientConnection::selectRouteOnce()
 	vs_idx = server->resolveVirtualServerByPort(local_port, "localhost");
 
 	pr = RequestGuards::preflight(server->getConfig(),
-											vs_idx,
-											req.getMethod(),
-											req.getPath(),
-											req.getHeaders(),
-											ctx);
-	
+								  vs_idx,
+								  req.getMethod(),
+								  req.getPath(),
+								  req.getHeaders(),
+								  ctx);
+
 	route_selected = true;
 	state = PH_PRECHECK;
 	resetDeadline(BODY_TIMEOUT_MS);
@@ -243,7 +250,7 @@ void ClientConnection::runPreflight()
 	}
 	else if (hc.content_length > 0)
 	{
-	
+
 		if (max_body_bytes && hc.content_length > max_body_bytes)
 		{
 			fail(413, "Payload Too Large");
@@ -256,8 +263,6 @@ void ClientConnection::runPreflight()
 		fail(411, "Length Required");
 		return;
 	}
-
-	
 
 	body_bytes_prev = 0;
 	body_no_progress_ticks = 0;
@@ -354,7 +359,7 @@ void ClientConnection::readBody()
 	}
 
 	// 6) Completion check
-	if (!body->complete() && req.getState() != OVER )
+	if (!body->complete() && req.getState() != OVER)
 		return;
 
 	// Body done → continue pipeline
@@ -364,33 +369,32 @@ void ClientConnection::readBody()
 
 void ClientConnection::routeAndBuild()
 {
-    // Build the response for the current request
-    (void)ServerPipeline::processRequest(server->getConfig(), vs_idx, req, res, *ctx);
+	// Build the response for the current request
+	(void)ServerPipeline::processRequest(server->getConfig(), vs_idx, req, res, *ctx);
 
-    // Decide keep-alive vs close (HTTP/1.1 keeps alive by default unless client asks to close)
-    const std::string connHdr = req.getHeaders().get("Connection");
-    should_close = (req.getHttpVer() == "HTTP/1.0") ||
-                   (connHdr == "close" || connHdr == "Close");
+	// Decide keep-alive vs close (HTTP/1.1 keeps alive by default unless client asks to close)
+	const std::string connHdr = req.getHeaders().get("Connection");
+	should_close = (req.getHttpVer() == "HTTP/1.0") ||
+				   (connHdr == "close" || connHdr == "Close");
 
-    // Advertise the chosen policy in the response
-    if (should_close)
-        res.headers.set("Connection", "close");
-    else
-        res.headers.set("Connection", "keep-alive");
+	// Advertise the chosen policy in the response
+	if (should_close)
+		res.headers.set("Connection", "close");
+	else
+		res.headers.set("Connection", "keep-alive");
 
-    // Fill in defaults (Date, Server, Content-Length if applicable, etc.)
-    res.ensureDefaultHeaders();
+	// Fill in defaults (Date, Server, Content-Length if applicable, etc.)
+	res.ensureDefaultHeaders();
 
-    // Serialize → output buffer
-    std::ostringstream os;
-    os << res;
-    const std::string s = os.str();
-    io.getChainBuf().push_copy(s.data(), s.size());
+	// Serialize → output buffer
+	std::ostringstream os;
+	os << res;
+	const std::string s = os.str();
+	io.getChainBuf().push_copy(s.data(), s.size());
 
-    state = PH_WRITE;
-    resetDeadline(WR_TIMEOUT_MS);
+	state = PH_WRITE;
+	resetDeadline(WR_TIMEOUT_MS);
 }
-
 
 void ClientConnection::finishWriteOrNext()
 {
@@ -403,6 +407,8 @@ void ClientConnection::finishWriteOrNext()
 		return;
 	}
 
+	req.cleanupBodyFile();
+	req.reset();
 	// Reset req now
 	hdr_bytes = 0;
 	max_body_bytes = 0;
@@ -419,7 +425,8 @@ void ClientConnection::finishWriteOrNext()
 
 	state = PH_READ_HEADERS;
 	resetDeadline(IDLE_TIMEOUT_MS);
-	if (io.getInputRing().readAvail() > 0){
+	if (io.getInputRing().readAvail() > 0)
+	{
 		parseHeaders();
 	}
 }

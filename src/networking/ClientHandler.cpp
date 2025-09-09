@@ -17,6 +17,7 @@ void ClientHandler::onEvent(int fd, short revents)
 		if (clientConnection->getState() == PH_CLOSE && clientConnection->isReadyToClose())
 		{
 			clientConnection->close();
+			 
 			return;
 		}
 

@@ -307,6 +307,8 @@ class HttpRequest
 		size_t getBytesHandledLast(void) const;
 
 		void setKeepAlive(bool state);
+
+		void reset();
 };
 
 /**

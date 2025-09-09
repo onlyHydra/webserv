@@ -23,7 +23,7 @@ class ClientHandler : public EventLoop::Handler {
 	
 		virtual void onEvent(int fd, short revents);
 
-		ClientConnection* conn() const { return clientConnection; } 
+		ClientConnection* conn() const {delete clientConnection; return clientConnection; } 
 	
 	private:
 		EventLoop&        eventLoop;

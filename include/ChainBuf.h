@@ -98,8 +98,8 @@ class ChainBuf
 
 		void setCaps(std::size_t max_bytes, std::size_t max_blocks)
 		{
-			max_bytes = max_bytes;
-			max_blocks = max_blocks;
+			this->max_bytes = max_bytes;
+			this->max_blocks = max_blocks;
 		}
 
 		// void attachFile(int fd, off_t off, std::size_t len);

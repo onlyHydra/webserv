@@ -7,9 +7,8 @@ Date: 11/08/2025
 
 #include "Headers.h"
 
-Headers::Headers()
+Headers::Headers() : map(), byteSize(0)
 {
-	this->byteSize = 0;
 }
 
 Headers::~Headers()

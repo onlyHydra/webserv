@@ -45,6 +45,7 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRe
 
 	// Pick the handler
 	Handler *h = 0;
+  
 	switch (decision.kind)
 	{
 	case RouteDecision::HK_STATIC:
