@@ -48,33 +48,43 @@ CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
     : req_(req)
     , res_(res)
     , proc_()
+    // ---- Event loop ----
+    , loop_(NULL)                 // will be set via attachLoop(&eventLoop)
+    // ---- CGI pipes / state ----
     , cgi_active_(false)
     , failed_(false)
     , cgi_in_fd_(-1)
     , cgi_out_fd_(-1)
+    // ---- Request-body streaming ----
     , cgi_body_off_(0)
     , body_fd_(-1)
     , body_file_off_(0)
     , body_path_()
+    // ---- Header parsing ----
     , hdr_state_(HDR_WAITING)
     , cgi_header_accum_()
     , saw_content_type_(false)
-    , status_code_(0)
+    , status_code_(0)             // keep 0 if your code interprets 0 as “unset”
     , status_reason_()
     , set_cookie_()
+    // ---- Output framing ----
     , http_head_queued_(false)
     , chunked_mode_(false)
     , sent_final_chunk_(false)
     , out_buf_()
     , out_off_(0)
+    // ---- Deadlines / timeouts ----
     , hdr_deadline_()
     , total_deadline_()
     , write_deadline_ms_(0)
+    // ---- Back-pressure hint ----
     , client_out_bytes_(0)
+    // ---- Read throttling ----
+    , stdout_paused_(false)
 {
-    stdout_paused_ = false;
-
+    // nothing else to do
 }
+
 
 CGIStreamer::~CGIStreamer()
 {
@@ -234,7 +244,7 @@ void CGIStreamer::closeStdin() {
     std::fprintf(stderr, "[CGI][FD] closeStdin fd=%d\n", cgi_in_fd_);
 #endif
     if (cgi_in_fd_ >= 0) {
-        if (loop_) loop_->removeFD(cgi_in_fd_);   // fully unregister
+        if (loop_) loop_->removeFD(cgi_in_fd_);   // unregister from poller
         ::close(cgi_in_fd_);
         cgi_in_fd_ = -1;
     }
@@ -245,11 +255,12 @@ void CGIStreamer::closeStdout() {
     std::fprintf(stderr, "[CGI][FD] closeStdout fd=%d\n", cgi_out_fd_);
 #endif
     if (cgi_out_fd_ >= 0) {
-        if (loop_) loop_->removeFD(cgi_out_fd_);  // fully unregister
+        if (loop_) loop_->removeFD(cgi_out_fd_);  // unregister from poller
         ::close(cgi_out_fd_);
         cgi_out_fd_ = -1;
     }
 }
+
 
 void CGIStreamer::reset() {
     // stop timers/mark inactive AFTER fds are gone
