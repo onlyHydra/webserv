@@ -155,38 +155,40 @@ void ClientHandler::updateInterests()
         clientConnection->getCGIStreamer().hasOutBytes())
         sock_ev |= POLLOUT;
 
-
     const int sockfd = clientConnection->fd();
     if (eventLoop.indexOfFD(sockfd) < 0) {
-        eventLoop.addFD(sockfd, sock_ev, clientConnection); // keep owner linkage
+        // Dispatcher is the handler (this), owner (for sweeping) is the connection
+        eventLoop.addFD(sockfd, sock_ev, this);
         eventLoop.setOwner(sockfd, clientConnection);
     } else {
         eventLoop.modFD(sockfd, sock_ev);
     }
 
-   // ---- CGI stdout (child -> server)
-const int cgiOut = clientConnection->getCGIStreamer().cgiStdoutFD();
-if (cgiOut >= 0) {
-    if (eventLoop.indexOfFD(cgiOut) < 0) {
-        eventLoop.addFD(cgiOut, POLLIN, this);                 // handler = this
-        eventLoop.setOwner(cgiOut, clientConnection);          // <- add this line
-    } else {
-        eventLoop.modFD(cgiOut, POLLIN);
-        eventLoop.setOwner(cgiOut, clientConnection);          // <- and keep owner fresh
+    // ---- CGI stdout (child -> server) ----
+    const int cgiOut = clientConnection->getCGIStreamer().cgiStdoutFD();
+    if (cgiOut >= 0) {
+        if (eventLoop.indexOfFD(cgiOut) < 0) {
+            // Dispatcher must be the handler so we actually read!
+            eventLoop.addFD(cgiOut, POLLIN, this);
+            // But tie sweeping to the connection so removeOwner(conn) cleans it up
+            eventLoop.setOwner(cgiOut, clientConnection);
+        } else {
+            eventLoop.modFD(cgiOut, POLLIN);
+        }
     }
+    // Don’t call removeFD(-1). If stdout is closed, CGIStreamer::closeStdout() already removed it.
+
+    // ---- CGI stdin (server -> child) ----
+    const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();
+    if (cgiIn >= 0) {
+        if (eventLoop.indexOfFD(cgiIn) < 0) {
+            eventLoop.addFD(cgiIn, POLLOUT, this);
+            eventLoop.setOwner(cgiIn, clientConnection);
+        } else {
+            eventLoop.modFD(cgiIn, POLLOUT);
+        }
+    }
+    // Same here — closeStdin() already unregisters; don’t removeFD(-1).
 }
 
-// ---- CGI stdin (server -> child)
-const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();
-if (cgiIn >= 0) {
-    if (eventLoop.indexOfFD(cgiIn) < 0) {
-        eventLoop.addFD(cgiIn, POLLOUT, this);                 // handler = this
-        eventLoop.setOwner(cgiIn, clientConnection);           // <- add this line
-    } else {
-        eventLoop.modFD(cgiIn, POLLOUT);
-        eventLoop.setOwner(cgiIn, clientConnection);           // <- and keep owner fresh
-    }
-}
-
-}
 

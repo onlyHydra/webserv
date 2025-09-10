@@ -230,16 +230,22 @@ void CGIStreamer::finalizeHeaders()
 #include <poll.h>  // POLLIN, POLLOUT
 
 void CGIStreamer::closeStdin() {
+#if defined(DEBUG)
+    std::fprintf(stderr, "[CGI][FD] closeStdin fd=%d\n", cgi_in_fd_);
+#endif
     if (cgi_in_fd_ >= 0) {
-        if (loop_) loop_->modFD(cgi_in_fd_, 0);   // stop POLLOUT
+        if (loop_) loop_->removeFD(cgi_in_fd_);   // fully unregister
         ::close(cgi_in_fd_);
         cgi_in_fd_ = -1;
     }
 }
 
 void CGIStreamer::closeStdout() {
+#if defined(DEBUG)
+    std::fprintf(stderr, "[CGI][FD] closeStdout fd=%d\n", cgi_out_fd_);
+#endif
     if (cgi_out_fd_ >= 0) {
-        if (loop_) loop_->modFD(cgi_out_fd_, 0);  // stop POLLIN
+        if (loop_) loop_->removeFD(cgi_out_fd_);  // fully unregister
         ::close(cgi_out_fd_);
         cgi_out_fd_ = -1;
     }
