@@ -335,15 +335,14 @@ void ClientConnection::parseHeaders()
         std::size_t n = ring.readAvail();
         if (!p || n == 0) break;
 
-        // Search only within the current contiguous view.
         const char *end = 0;
 
-        // "\r\n\r\n"
+        // Look for "\r\n\r\n"
         for (std::size_t i = 0; !end && i + 3 < n; ++i) {
             if (p[i] == '\r' && p[i+1] == '\n' && p[i+2] == '\r' && p[i+3] == '\n')
-                end = p + i + 4; // just past the delimiter
+                end = p + i + 4;
         }
-        // or "\n\n"
+        // Or "\n\n"
         if (!end) {
             for (std::size_t i = 0; !end && i + 1 < n; ++i) {
                 if (p[i] == '\n' && p[i+1] == '\n')
@@ -351,39 +350,43 @@ void ClientConnection::parseHeaders()
             }
         }
 
-        // Feed:
-        //  - if we found the delimiter: feed exactly up to it
-        //  - else: feed all but the last 3 bytes (overlap for split delimiter)
         std::size_t to_feed;
         if (end) {
+            // Found a complete header block
             to_feed = static_cast<std::size_t>(end - p);
         } else {
+            // Not yet complete → consume all but the last 3 bytes
             to_feed = (n > 3) ? (n - 3) : 0;
-            if (to_feed == 0) break; // need more data to decide
+            if (to_feed == 0) break; // need more data
         }
 
-        // Enforce header cap before parsing
-        if (hdr_bytes + to_feed > max_hdr_bytes) { fail(431, "Request Header Fields Too Large"); return; }
+        if (hdr_bytes + to_feed > max_hdr_bytes) {
+            fail(431, "Request Header Fields Too Large");
+            return;
+        }
 
-        // Parse and consume exactly 'to_feed'
-        if (!req.parse(p, to_feed)) { fail(400, "Bad Request"); return; }
+        if (!req.parse(p, to_feed)) {
+            fail(400, "Bad Request");
+            return;
+        }
+
         ring.consumed(to_feed);
         hdr_bytes += to_feed;
         resetDeadline(HDR_TIMEOUT_MS);
 
         if (end) {
-            // headers complete — go pick route/preflight next
             route_selected = false;
             state = PH_ROUTE_SELECT;
             resetDeadline(BODY_TIMEOUT_MS);
             return;
         }
-        // else loop for more bytes
+        // else: continue the loop
     }
 
-    // Not done yet — keep header timeout active
     resetDeadline(HDR_TIMEOUT_MS);
 }
+
+
 
 
 
