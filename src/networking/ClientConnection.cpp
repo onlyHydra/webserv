@@ -13,6 +13,7 @@
 #include <unistd.h>   // mkstemp, write
 #include <stdlib.h> 
 #include <limits>   // for std::numeric_limits
+#include <cstdio>
 
 static const std::size_t INMEM_BODY_LIMIT = 256 * 1024;
 
@@ -226,13 +227,16 @@ void ClientConnection::onTick(unsigned long long now_ms)
     const std::size_t HIGH_WATER = 192u * 1024u;  // pause when >= 192 KiB queued
     const std::size_t LOW_WATER  = 64u  * 1024u;  // resume when <= 64 KiB queued
 
-    if (cgi.isActive()) {
-        if (outbytes >= HIGH_WATER) {
-            cgi.pauseStdoutReads();    // internally: loop_->modFD(cgi_out_fd, 0)
-        } else if (outbytes <= LOW_WATER) {
-            cgi.resumeStdoutReads();   // internally: loop_->modFD(cgi_out_fd, POLLIN)
-        }
-    }
+	if (cgi.isActive()) {
+		if (outbytes >= HIGH_WATER) {
+			std::fprintf(stderr, "[CGI][BP] pause stdout (queued=%zu)\n", outbytes);
+			cgi.pauseStdoutReads();
+		} else if (outbytes <= LOW_WATER) {
+			std::fprintf(stderr, "[CGI][BP] resume stdout (queued=%zu)\n", outbytes);
+			cgi.resumeStdoutReads();
+		}
+	}
+
     // -------------------------------------------------------------------------
 
     if (io.getFlow().shouldPauseRead(outbytes))

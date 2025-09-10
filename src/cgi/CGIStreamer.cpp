@@ -431,7 +431,12 @@ std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes) {
 void CGIStreamer::onCgiReadable(int fd)
 {
     if (!cgi_active_ || fd != cgi_out_fd_ || cgi_out_fd_ < 0) return;
-    if (!wantsRead()) return; // back-pressure: defer reading
+
+    // Back-pressure gate
+    if (!wantsRead()) {
+        std::fprintf(stderr, "[CGI][RD] outFD=%d wantsRead=0 → defer\n", cgi_out_fd_);
+        return;
+    }
 
     for (;;)
     {
@@ -442,12 +447,17 @@ void CGIStreamer::onCgiReadable(int fd)
         {
             const char* p = buf;
             std::size_t n = static_cast<std::size_t>(r);
+            std::fprintf(stderr, "[CGI][RD] outFD=%d got=%zu bytes (state=%s)\n",
+                         cgi_out_fd_, n, (hdr_state_ == HDR_WAITING ? "HEADERS" : "BODY"));
 
             if (hdr_state_ == HDR_WAITING)
             {
                 // Accumulate until CRLFCRLF or LFLF
                 cgi_header_accum_.append(p, n);
+                std::fprintf(stderr, "[CGI][RD] accum=%zu bytes\n",
+                             cgi_header_accum_.size());
 
+                // Find header/body cut
                 std::string::size_type cut = std::string::npos;
                 std::string::size_type k = cgi_header_accum_.find("\r\n\r\n");
                 if (k != std::string::npos) cut = k + 4;
@@ -466,9 +476,19 @@ void CGIStreamer::onCgiReadable(int fd)
                     const bool first_has_colon = (first.find(':') != std::string::npos);
 
                     if (!first_has_colon || cgi_header_accum_.size() > 8192u) {
-                        if (!http_head_queued_) finalizeHeaders(); // synthesize safe head
-                        if (!cgi_header_accum_.empty())
+                        std::fprintf(stderr,
+                            "[CGI][RD] no header terminator (first_has_colon=%d, size=%zu) → treat as body\n",
+                            (int)first_has_colon, cgi_header_accum_.size());
+
+                        if (!http_head_queued_) {
+                            std::fprintf(stderr, "[CGI][RD] finalizeHeaders (synth)\n");
+                            finalizeHeaders(); // synthesize safe head
+                        }
+                        if (!cgi_header_accum_.empty()) {
                             enqueueOut(cgi_header_accum_.data(), cgi_header_accum_.size());
+                            std::fprintf(stderr, "[CGI][RD] queued body spill=%zu\n",
+                                         cgi_header_accum_.size());
+                        }
                         cgi_header_accum_.clear();
                         hdr_state_ = HDR_DONE;
                     }
@@ -478,6 +498,13 @@ void CGIStreamer::onCgiReadable(int fd)
 
                 // We have a complete header block → parse it line-by-line
                 const std::string hdr = cgi_header_accum_.substr(0, cut);
+                std::fprintf(stderr, "[CGI][RD] header block complete len=%zu (cut at %zu)\n",
+                             hdr.size(), cut);
+
+                // Quick counters for debug
+                int set_cookie_count = 0;
+                int parsed_lines = 0;
+
                 std::string line;
                 for (std::string::size_type i = 0; i < hdr.size(); )
                 {
@@ -488,16 +515,36 @@ void CGIStreamer::onCgiReadable(int fd)
                     if (j < hdr.size() && hdr[j] == '\n') ++j;
                     i = j;
 
-                    if (!line.empty())
+                    if (!line.empty()) {
+                        // Count Set-Cookie for visibility
+                        std::string lower = line;
+                        for (size_t q = 0; q < lower.size(); ++q) {
+                            char c = lower[q];
+                            if (c >= 'A' && c <= 'Z') lower[q] = char(c - 'A' + 'a');
+                        }
+                        if (lower.size() >= 11 && lower.compare(0, 11, "set-cookie:") == 0)
+                            ++set_cookie_count;
+
                         parseOneHeaderLine(line);
+                        ++parsed_lines;
+                    }
                 }
 
+                std::fprintf(stderr, "[CGI][RD] parsed_lines=%d set-cookie=%d\n",
+                             parsed_lines, set_cookie_count);
+
                 // Anything after the terminator is body
-                if (!http_head_queued_) finalizeHeaders();
+                if (!http_head_queued_) {
+                    std::fprintf(stderr, "[CGI][RD] finalizeHeaders\n");
+                    finalizeHeaders();
+                }
                 if (cut < cgi_header_accum_.size()) {
                     const char* bp = cgi_header_accum_.data() + cut;
                     const std::size_t bn = cgi_header_accum_.size() - cut;
-                    if (bn) enqueueOut(bp, bn);
+                    if (bn) {
+                        enqueueOut(bp, bn);
+                        std::fprintf(stderr, "[CGI][RD] queued post-header body=%zu\n", bn);
+                    }
                 }
 
                 cgi_header_accum_.clear();
@@ -506,16 +553,22 @@ void CGIStreamer::onCgiReadable(int fd)
             }
 
             // Normal body streaming (headers already finalized)
-            if (!http_head_queued_) finalizeHeaders(); // safety net
+            if (!http_head_queued_) {
+                std::fprintf(stderr, "[CGI][RD] finalizeHeaders (late safety)\n");
+                finalizeHeaders(); // safety net
+            }
             enqueueOut(p, n);
+            std::fprintf(stderr, "[CGI][RD] queued body=%zu\n", n);
             continue;
         }
 
         if (r == 0)  // EOF from CGI
         {
+            std::fprintf(stderr, "[CGI][RD] EOF on outFD=%d\n", cgi_out_fd_);
+
             // Make sure we have emitted an HTTP head even if CGI sent no headers
             if (!http_head_queued_) {
-                // If you want to treat "no CGI header at all" as error, set failed_=true here instead.
+                std::fprintf(stderr, "[CGI][RD] finalizeHeaders at EOF (no CGI headers)\n");
                 finalizeHeaders();
             }
 
@@ -524,6 +577,7 @@ void CGIStreamer::onCgiReadable(int fd)
             if (chunked_mode_ && !sent_final_chunk_) {
                 enqueueFinalChunk();     // "0\r\n\r\n"
                 sent_final_chunk_ = true;
+                std::fprintf(stderr, "[CGI][RD] queued final chunk\n");
             }
 
             cgi_active_ = false;         // streamer done producing
@@ -531,10 +585,18 @@ void CGIStreamer::onCgiReadable(int fd)
         }
 
         // r < 0
-        if (errno == EINTR) continue;
-        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+        if (errno == EINTR) {
+            std::fprintf(stderr, "[CGI][RD] read EINTR → retry\n");
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            std::fprintf(stderr, "[CGI][RD] read EAGAIN → pause loop\n");
+            break;
+        }
 
         // Hard error → stop this CGI cleanly
+        std::fprintf(stderr, "[CGI][RD] read error errno=%d (%s) → fail\n",
+                     errno, std::strerror(errno));
         closeStdout();
         cgi_active_ = false;
         failed_ = true;
@@ -547,11 +609,24 @@ void CGIStreamer::onCgiWritable(int fd)
 {
     if (!cgi_active_ || fd != cgi_in_fd_) return;
 
-    // If no stdin expected, close immediately.
+    // Enter + basic state
     const std::size_t total = req_.getBodyLength();
-    if (total == 0) { closeStdin(); return; }
+    std::fprintf(stderr, "[CGI][WR] enter inFD=%d off=%zu total=%zu disk=%d\n",
+                 cgi_in_fd_, cgi_body_off_, total, (int)req_.isBodyOnDisk());
 
-    if (cgi_body_off_ >= total) { closeStdin(); return; }
+    // If no stdin expected, close immediately.
+    if (total == 0) {
+        std::fprintf(stderr, "[CGI][WR] total=0 → closeStdin\n");
+        closeStdin();
+        return;
+    }
+
+    if (cgi_body_off_ >= total) {
+        std::fprintf(stderr, "[CGI][WR] already sent all (%zu/%zu) → closeStdin\n",
+                     cgi_body_off_, total);
+        closeStdin();
+        return;
+    }
 
     // Write at most this many bytes per syscall to avoid hogging the loop.
     const std::size_t CHUNK = 16384u;
@@ -569,16 +644,22 @@ void CGIStreamer::onCgiWritable(int fd)
 #endif
             );
             if (body_fd_ < 0) {
-                std::fprintf(stderr, "[CGI] open(%s) failed: %d\n",
-                             body_path_.c_str(), errno);
+                std::fprintf(stderr, "[CGI][WR] open(%s) failed: errno=%d (%s) → closeStdin\n",
+                             body_path_.c_str(), errno, std::strerror(errno));
                 closeStdin();
                 return;
             }
+            std::fprintf(stderr, "[CGI][WR] opened body file %s fd=%d\n",
+                         body_path_.c_str(), body_fd_);
         }
 
         const std::size_t remaining = total - cgi_body_off_;
         const std::size_t to_read   = (remaining < CHUNK) ? remaining : CHUNK;
-        if (to_read == 0) { closeStdin(); return; }
+        if (to_read == 0) {
+            std::fprintf(stderr, "[CGI][WR] to_read=0 (remaining=%zu) → closeStdin\n", remaining);
+            closeStdin();
+            return;
+        }
 
         char small[16384];
         // pread() from the *logical* offset (stateless; safe on partial writes)
@@ -589,35 +670,50 @@ void CGIStreamer::onCgiWritable(int fd)
         } while (r < 0 && errno == EINTR);
 
         if (r < 0) {
-            if (errno == EAGAIN) return;   // try again next POLLOUT
-            closeStdin();                  // hard error
+            if (errno == EAGAIN) {
+                std::fprintf(stderr, "[CGI][WR] pread EAGAIN → retry later\n");
+                return;
+            }
+            std::fprintf(stderr, "[CGI][WR] pread error errno=%d (%s) → closeStdin\n",
+                         errno, std::strerror(errno));
+            closeStdin();
             return;
         }
         if (r == 0) {
-            // Producer (request reader) hasn’t flushed these bytes to disk yet; retry later
+            // Producer (request reader) hasn’t flushed these bytes to disk yet; retry later.
+            std::fprintf(stderr, "[CGI][WR] pread=0 (not flushed yet) → retry later\n");
             return;
         }
 
         std::size_t want = static_cast<std::size_t>(r);
         std::size_t sent = 0;
+        std::fprintf(stderr, "[CGI][WR] disk chunk ready want=%zu\n", want);
 
         while (sent < want) {
             ssize_t w = ::write(cgi_in_fd_, small + sent, want - sent);
             if (w > 0) {
                 sent += static_cast<std::size_t>(w);
                 cgi_body_off_ += static_cast<std::size_t>(w);
+                std::fprintf(stderr, "[CGI][WR] wrote=%zd new_off=%zu/%zu\n",
+                             w, cgi_body_off_, total);
                 resetWriteDeadline();
-                if (cgi_body_off_ >= total) { 
-                    closeStdin(); 
-                    return; 
+                if (cgi_body_off_ >= total) {
+                    std::fprintf(stderr, "[CGI][WR] done sending body → closeStdin\n");
+                    closeStdin();
+                    return;
                 }
             } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 // Pipe full; we’ll retry from the same logical offset on next POLLOUT
+                std::fprintf(stderr, "[CGI][WR] write EAGAIN with %zu/%zu sent → retry later\n",
+                             sent, want);
                 break;
             } else if (w < 0 && errno == EINTR) {
+                std::fprintf(stderr, "[CGI][WR] write EINTR → continue\n");
                 continue; // retry same write
             } else {
                 // Broken pipe / other error
+                std::fprintf(stderr, "[CGI][WR] write error errno=%d (%s) → closeStdin\n",
+                             errno, std::strerror(errno));
                 closeStdin();
                 return;
             }
@@ -629,34 +725,67 @@ void CGIStreamer::onCgiWritable(int fd)
     // =========================
     // IN-MEMORY BODY
     // =========================
-    // IMPORTANT: getBody() returns by value in your code; own it locally.
     std::vector<char> tmp = req_.getBody();
+    std::fprintf(stderr, "[CGI][WR] mem tmp.size=%zu off=%zu total=%zu\n",
+                 tmp.size(), cgi_body_off_, total);
+
+    // Guard empty/not-yet-available bytes to avoid UB on &tmp[0].
+    if (tmp.size() <= cgi_body_off_) {
+        std::fprintf(stderr, "[CGI][WR] no bytes available yet (tmp.size=%zu, off=%zu) → retry later\n",
+                     tmp.size(), cgi_body_off_);
+        return;
+    }
 
     std::size_t remaining = total - cgi_body_off_;
     std::size_t avail     = tmp.size() - cgi_body_off_;
     std::size_t len       = (remaining < avail) ? remaining : avail;
-    if (len > 16384u) len = 16384u;
+    if (len == 0) {
+        std::fprintf(stderr, "[CGI][WR] len=0 after calc → retry later\n");
+        return;
+    }
+    if (len > CHUNK) len = CHUNK;
 
     char small[16384];
     std::memcpy(small, &tmp[0] + cgi_body_off_, len);
+    std::fprintf(stderr, "[CGI][WR] mem chunk write attempt len=%zu\n", len);
 
     std::size_t sent = 0;
     while (sent < len) {
         ssize_t w = ::write(cgi_in_fd_, small + sent, len - sent);
         if (w > 0) {
-            sent += static_cast<size_t>(w);
-            cgi_body_off_ += static_cast<size_t>(w);
+            sent += static_cast<std::size_t>(w);
+            cgi_body_off_ += static_cast<std::size_t>(w);
+            std::fprintf(stderr, "[CGI][WR] wrote=%zd new_off=%zu/%zu\n",
+                         w, cgi_body_off_, total);
             resetWriteDeadline();
-            if (cgi_body_off_ >= total) { closeStdin(); return; }
+            if (cgi_body_off_ >= total) {
+                std::fprintf(stderr, "[CGI][WR] done sending body → closeStdin\n");
+                closeStdin();
+                return;
+            }
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return; // wait for POLLOUT
-            if (errno == EINTR) continue;                        // retry immediately
-            if (errno == EPIPE) { closeStdin(); return; }        // child closed stdin
-            closeStdin();                                        // other fatal error
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::fprintf(stderr, "[CGI][WR] write EAGAIN after sent=%zu/%zu → retry later\n",
+                             sent, len);
+                return;
+            }
+            if (errno == EINTR) {
+                std::fprintf(stderr, "[CGI][WR] write EINTR → continue\n");
+                continue;
+            }
+            if (errno == EPIPE) {
+                std::fprintf(stderr, "[CGI][WR] write EPIPE → closeStdin\n");
+                closeStdin();
+                return;
+            }
+            std::fprintf(stderr, "[CGI][WR] write error errno=%d (%s) → closeStdin\n",
+                         errno, std::strerror(errno));
+            closeStdin();
             return;
         }
     }
 }
+
 
 // --- timeout handling ---
 

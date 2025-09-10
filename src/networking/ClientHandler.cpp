@@ -164,26 +164,29 @@ void ClientHandler::updateInterests()
         eventLoop.modFD(sockfd, sock_ev);
     }
 
-    // ---- CGI stdout (child -> server): ALWAYS watch for POLLIN ----
-    const int cgiOut = clientConnection->getCGIStreamer().cgiStdoutFD();
-    if (cgiOut >= 0) {
-        if (eventLoop.indexOfFD(cgiOut) < 0)
-            eventLoop.addFD(cgiOut, POLLIN, this);
-        else
-            eventLoop.modFD(cgiOut, POLLIN);
+   // ---- CGI stdout (child -> server)
+const int cgiOut = clientConnection->getCGIStreamer().cgiStdoutFD();
+if (cgiOut >= 0) {
+    if (eventLoop.indexOfFD(cgiOut) < 0) {
+        eventLoop.addFD(cgiOut, POLLIN, this);                 // handler = this
+        eventLoop.setOwner(cgiOut, clientConnection);          // <- add this line
     } else {
-        // stdout closed: nothing to (un)register when < 0
+        eventLoop.modFD(cgiOut, POLLIN);
+        eventLoop.setOwner(cgiOut, clientConnection);          // <- and keep owner fresh
     }
+}
 
-    // ---- CGI stdin (server -> child) writable? ----
-    const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();
-    if (cgiIn >= 0) {
-        if (eventLoop.indexOfFD(cgiIn) < 0)
-            eventLoop.addFD(cgiIn, POLLOUT, this);
-        else
-            eventLoop.modFD(cgiIn, POLLOUT);
+// ---- CGI stdin (server -> child)
+const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();
+if (cgiIn >= 0) {
+    if (eventLoop.indexOfFD(cgiIn) < 0) {
+        eventLoop.addFD(cgiIn, POLLOUT, this);                 // handler = this
+        eventLoop.setOwner(cgiIn, clientConnection);           // <- add this line
     } else {
-        // stdin closed: nothing to (un)register when < 0
+        eventLoop.modFD(cgiIn, POLLOUT);
+        eventLoop.setOwner(cgiIn, clientConnection);           // <- and keep owner fresh
     }
+}
+
 }
 
