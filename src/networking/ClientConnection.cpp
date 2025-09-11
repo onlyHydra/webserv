@@ -114,7 +114,6 @@ void ClientConnection::drainRingIntoBody()
 
 ClientConnection::~ClientConnection()
 {
-
 	if (server)
 		server = 0;
 	if (ctx)
@@ -138,7 +137,6 @@ bool ClientConnection::hasPendingWrite() const {
 
 bool ClientConnection::isReadPaused() { return io.getFlow().isReadPaused(); }
 void ClientConnection::close()
-
 {
 	server->releaseConnection(this);
 }
@@ -402,7 +400,6 @@ void ClientConnection::selectRouteOnce()
 								  req.getPath(),
 								  req.getHeaders(),
 								  ctx);
-
 	route_selected = true;
 	state = PH_PRECHECK;
 	resetDeadline(BODY_TIMEOUT_MS);
@@ -575,6 +572,8 @@ void ClientConnection::routeAndBuild()
     const std::string s = os.str();
     io.getChainBuf().push_copy(s.data(), s.size());
 
+	state = PH_WRITE;
+	resetDeadline(WR_TIMEOUT_MS);
 	state = PH_WRITE;
 	resetDeadline(WR_TIMEOUT_MS);
 }
