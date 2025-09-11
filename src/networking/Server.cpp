@@ -69,7 +69,6 @@ void Server::unregisterListeners()
             // Also deletes the per-fd handler inside EventLoop, if any.
             loop_.removeFD(fd);
         }
-		listeners.clear();
 		delete lst;  // Listener dtor should close its fd (RAII)
 		*it = 0;
 	}

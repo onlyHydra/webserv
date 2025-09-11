@@ -273,10 +273,18 @@ int HttpRequest::handleInput(bool &activity)
 	}
 	else
 	{
-		// We reached BODY: do NOT consume any more bytes here.
-    // Leave them in the buffer for the body reader stage.
-		activity = false;
-		return 0;
+		activity = true;
+		line = this->buffer;
+		buffer.clear();
+		/**
+		 * When we later want to have special body handling, this behaviour should be changed
+		 * to somethign like this:
+		 * activity = false;
+		 * return 0;
+		 * This will mean a normal ending for the parse() and keep the currently given
+		 * input in the Requests buffer
+		 * From there, we can use that buffer and whatever body we get later
+		 */
 	}
 	return (this->handleLine(line));
 }
