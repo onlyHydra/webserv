@@ -176,8 +176,7 @@ void ClientHandler::updateInterests()
             eventLoop.modFD(cgiOut, POLLIN);
         }
     }
-    // Don’t call removeFD(-1). If stdout is closed, CGIStreamer::closeStdout() already removed it.
-
+   
     // ---- CGI stdin (server -> child) ----
     const int cgiIn = clientConnection->getCGIStreamer().cgiStdinFD();
     if (cgiIn >= 0) {
@@ -188,7 +187,7 @@ void ClientHandler::updateInterests()
             eventLoop.modFD(cgiIn, POLLOUT);
         }
     }
-    // Same here — closeStdin() already unregisters; don’t removeFD(-1).
+
 }
 
 

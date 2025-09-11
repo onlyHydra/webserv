@@ -192,15 +192,6 @@ int CgiHandler::buildEnv(const HttpRequest &req,
     return static_cast<int>(envv.size()); // tests expect >0
 }
 
-/* static std::string joinFs(const std::string& a, const std::string& b) {
-    if (a.empty()) return b;
-    if (b.empty()) return a;
-    const bool aSlash = a[a.size()-1] == '/';
-    const bool bSlash = b[0] == '/';
-    if (aSlash && bSlash) return a + b.substr(1);
-    if (!aSlash && !bSlash) return a + "/" + b;
-    return a + b;
-} */
 
 CgiHandler::CgiHandler() : Handler() {}
 CgiHandler::~CgiHandler() {}

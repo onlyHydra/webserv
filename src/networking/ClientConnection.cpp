@@ -77,8 +77,7 @@ void ClientConnection::drainRingIntoBody()
 
         std::size_t take = avail;
 
-        // Stream to temp file if we opened one; otherwise this is where you’d
-        // append to an in-RAM buffer if you have one.
+       
         if (body_fd_ >= 0) {
             std::size_t off = 0;
             while (off < take) {
@@ -126,11 +125,6 @@ ClientConnection::~ClientConnection()
 }
 
 bool ClientConnection::isClosed() const { return state == PH_CLOSE; }
-/* bool ClientConnection::hasPendingWrite() const
-{
-    return io.getChainBuf().getByteSize() > 0
-        || cgi.hasOutBytes();
-} */
 
 bool ClientConnection::hasPendingWrite() const {
     return io.getChainBuf().getByteSize() > 0 || cgi.hasOutBytes();
@@ -183,8 +177,6 @@ bool ClientConnection::pumpCgiToSocket(std::size_t max_bytes)
         }
     }
 
-    // Return whether there is still work pending (CGI active or bytes left to write),
-    // or we made progress this call (useful for your onTick/onEvent loop heuristics).
     return progressed || cgi.isActive() || (io.getChainBuf().getByteSize() > 0);
 }
 
@@ -221,8 +213,6 @@ void ClientConnection::onTick(unsigned long long now_ms)
     const std::size_t outbytes = io.getChainBuf().getByteSize();
     cgi.setClientWaterline(outbytes);
 
-    // ---- Back-pressure policy for CGI stdout reads (HIGH/LOW watermarks) ----
-    // Tune these if needed; goal is to stop growing memory when client is slow,
     // and resume reading as soon as the socket drains enough.
     const std::size_t HIGH_WATER = 192u * 1024u;  // pause when >= 192 KiB queued
     const std::size_t LOW_WATER  = 64u  * 1024u;  // resume when <= 64 KiB queued
@@ -387,11 +377,6 @@ void ClientConnection::parseHeaders()
 }
 
 
-
-
-
-
-
 void ClientConnection::selectRouteOnce()
 {
 	if (route_selected)
@@ -543,24 +528,6 @@ void ClientConnection::readBody()
 
 
 
-/* #include <ctime>
-#include <string>
-
-static std::string http_date_now_gmt()
-{
-    char buf[64];
-    std::time_t t = std::time(0);
-    std::tm g;
-#if defined(_WIN32)
-    gmtime_s(&g, &t);
-#else
-    g = *std::gmtime(&t);
-#endif
-    if (std::strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &g))
-        return std::string(buf);
-    return std::string();
-} */
-
 void ClientConnection::routeAndBuild()
 {
     // Let the pipeline decide and (possibly) start CGI.
@@ -580,31 +547,7 @@ void ClientConnection::routeAndBuild()
         (connHdr == "close" || connHdr == "Close");
 
     if (!done) {
-        // -------- Asynchronous CGI response --------
-        // We must send an HTTP head *now*. Do NOT add Content-Length here.
-        // We *do* stream the body as chunked while the CGI produces it.
-
-       /*  HttpResponse head;
-        head.status = 200;
-        head.reason = "OK";
-
-        // Minimal, safe defaults (CGI will send plain text in your tests).
-        head.headers.set("Content-Type", "text/plain");
-        head.headers.set("Transfer-Encoding", "chunked");
-        head.headers.set("Connection", should_close ? "close" : "keep-alive");
-
-        // Only synthesize Date/Server here (do NOT call ensureDefaultHeaders()).
-        // Use your helper that returns an RFC 1123 GMT string.
-        head.headers.set("Date", http_date_now_gmt());
-        head.headers.set("Server", "webserv/1.0");
-
-        // Serialize the head and queue it to the socket buffer.
-        std::ostringstream os;
-        os << head;
-        const std::string s = os.str();
-        io.getChainBuf().push_copy(s.data(), s.size()); */
-
-        // Switch to write phase; CGIStreamer will keep feeding chunks.
+      
         state = PH_WRITE;
         resetDeadline(WR_TIMEOUT_MS);
         return;
@@ -629,11 +572,6 @@ void ClientConnection::routeAndBuild()
     state = PH_WRITE;
     resetDeadline(WR_TIMEOUT_MS);
 }
-
-
-
-
-
 
 
 void ClientConnection::finishWriteOrNext()
@@ -664,10 +602,6 @@ void ClientConnection::finishWriteOrNext()
     resetDeadline(IDLE_TIMEOUT_MS);
     if (io.getInputRing().readAvail() > 0) parseHeaders();
 }
-
-
-
-
 
 
 void ClientConnection::fail(int code, const char* reason)
