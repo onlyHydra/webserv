@@ -187,13 +187,14 @@ static std::string buildAutoindex(const std::string &urlBase, const std::string 
     return html.str();
 }
 
-static std::string makeEtag(const struct stat &st)
-{
-    std::ostringstream et;
-    et << "\"" << std::hex << (unsigned long long)st.st_size
-       << "-" << std::hex << (unsigned long long)st.st_mtime << "\"";
-    return et.str();
-}
+// DISCONTINUED, UNUSED
+// static std::string makeEtag(const struct stat &st)
+// {
+//     std::ostringstream et;
+//     et << "\"" << std::hex << (unsigned long long)st.st_size
+//        << "-" << std::hex << (unsigned long long)st.st_mtime << "\"";
+//     return et.str();
+// }
 
 // Try to serve a configured error page, e.g. error_page 404 /errors/404.html;
 // Falls back to /errors/404.html under the effective root if not configured.
@@ -273,7 +274,7 @@ static bool serveErrorPage_(int code,
         res.body.assign(file.begin(), file.end());
 
     res.headers.set(HDR_CONTENT_TYPE, guessMime(canonErr, ctx.cfg));
-    res.headers.set(HDR_ETAG, makeEtag(st));
+    res.headers.set(HDR_ETAG, ETagUtil::generate(canonErr.c_str()));
 
     std::ostringstream cl;
     cl << static_cast<unsigned long>(file.size());
@@ -356,7 +357,7 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
                 if (!is_head) res.body.assign(file.begin(), file.end());
 
                 res.headers.set(HDR_CONTENT_TYPE, guessMime(candidate, ctx.cfg));
-                res.headers.set(HDR_ETAG, makeEtag(st2));
+                res.headers.set(HDR_ETAG, ETagUtil::generate(candidate.c_str()));
 
                 std::ostringstream cl; cl << (unsigned long)file.size();
                 res.headers.set(HDR_CONTENT_LENGTH, cl.str());
@@ -389,11 +390,12 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
 
     if (S_ISREG(st.st_mode)) {
     // Build ETag and Last-Modified first (we’ll need them for 304)
-    const std::string et = makeEtag(st);
+    const std::string et = ETagUtil::generate(canonPath.c_str());
     const std::string lm = httpDate(st.st_mtime);
 
     // Conditional GET handling
-    if (HttpPreconditions::isNotModified(req, et, st.st_mtime)) {
+    if (!HttpPreconditions::getPreconditons(req, et, st.st_mtime))
+    {
         res.setStatus(304);
         res.body.clear();
         res.headers.set(HDR_ETAG, et);

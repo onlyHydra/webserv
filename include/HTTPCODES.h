@@ -34,6 +34,9 @@ Date: 11/08/2025
 // Request conflicts with current state of server
 # define HTTP_CONFLICT 409
 
+// Requests ETag does not match the current ETag (file out of date)
+# define HTTP_PRECON_FAIL 412
+
 // Unsupported Media Type
 # define HTTP_INV_MEDIA 415
 

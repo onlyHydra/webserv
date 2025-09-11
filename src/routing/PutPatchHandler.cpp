@@ -18,6 +18,21 @@ PutPatchHandler::~PutPatchHandler()
 }
 
 /**
+ * @brief Sets the Response to be a failure
+ * @param code Http Error Code to set it to
+ * @returns false
+ */
+bool	createFailResponse(HttpResponse &res, int code)
+{
+	res.setStatus(code);
+	res.clearBody();
+	res.headers.set(HDR_CONTENT_TYPE, "text/plain");
+	res.headers.set(HDR_CONTENT_LENGTH, "0");
+	res.bodyLength = 0;
+	return (false);
+}
+
+/**
  * @brief Opens File with mode as a stream
  * 
  * Differs flags based on modes
@@ -298,9 +313,9 @@ int allowedPatchMethod(const std::string &input, std::map<std::string, std::stri
  * @param ctx Context about Request
  * @returns Http Exit Code
  */
-int	applyPatchAppend(HttpRequest &req, RequestContext &ctx)
+int	applyPatchAppend(const char *path, HttpRequest &req, RequestContext &ctx)
 {
-	return (decideWrite(req.getPath().c_str(), 0, APPEND, req, ctx));
+	return (decideWrite(path, 0, APPEND, req, ctx));
 }
 
 /**
@@ -316,18 +331,18 @@ int	applyPatchAppend(HttpRequest &req, RequestContext &ctx)
  * @param ctx Context about Request
  * @returns Http Exit Code
  */
-int	applyPatchOverwrite(size_t offset, HttpRequest &req, RequestContext &ctx)
+int	applyPatchOverwrite(const char *path, size_t offset, HttpRequest &req, RequestContext &ctx)
 {
-	return (decideWrite(req.getPath().c_str(), offset, OVERWRITE, req, ctx));
+	return (decideWrite(path, offset, OVERWRITE, req, ctx));
 }
 
-int	PutPatchHandler::handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+int	PutPatchHandler::handle_put(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
 	(void)res;
-	return (decideWrite(req.getPath().c_str(), 0, PUT, req, ctx));
+	return (decideWrite(path, 0, PUT, req, ctx));
 }
 
-int	PutPatchHandler::handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+int	PutPatchHandler::handle_patch(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
 	std::string	type;
 	int			status;
@@ -351,8 +366,44 @@ int	PutPatchHandler::handle_patch(HttpRequest &req, HttpResponse &res, RequestCo
 
 	// Apply that method
 	if (type == MIME_PATCH_APPEND)
-		return (applyPatchAppend(req, ctx));
+		return (applyPatchAppend(path, req, ctx));
 	else if (type == MIME_PATCH_OVERWRITE)
-		return (applyPatchOverwrite(offset, req, ctx));
+		return (applyPatchOverwrite(path, offset, req, ctx));
 	return (HTTP_INV_MEDIA);
+}
+
+bool PutPatchHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
+{
+	int status;
+
+	// Check if method is invalid
+	if (req.getMethod() != "PUT" && req.getMethod() != "PATCH")
+		return (createFailResponse(res, HTTP_BAD_REQUEST));
+
+	// Get target file
+	std::string pathStr = ctx.effective_root + ctx.rel_path;
+	const char *path = pathStr.c_str();
+
+	// Generate Etag
+	std::string etag = ETagUtil::generate(path);
+	
+	// Check Preconditions
+	if (!HttpPreconditions::putpatchPreconditons(req, etag))
+		return (createFailResponse(res, HTTP_PRECON_FAIL));
+
+	// Run the method
+	if (req.getMethod() == "PUT")
+		status = handle_put(path, req, res, ctx);
+	else
+		status = handle_patch(path, req, res, ctx);
+
+	// Check if method process was not valid
+	if (!(status == HTTP_OK || status == HTTP_FILE_CREATED))
+		return (createFailResponse(res, status));
+
+	// Make ETag for newly created and modified version
+	etag = ETagUtil::generate(path);
+	res.headers.set(HDR_ETAG, etag);
+	res.setStatus(status);
+	return (true);
 }

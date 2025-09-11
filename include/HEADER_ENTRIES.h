@@ -20,6 +20,7 @@
 #define HDR_UPGRADE_INSECURE_REQUESTS "Upgrade-Insecure-Requests"
 #define HDR_IF_MODIFIED_SINCE "If-Modified-Since"
 #define HDR_IF_NONE_MATCH "If-None-Match"
+#define HDR_IF_MATCH "If-Match"
 #define HDR_RANGE "Range"
 #define HDR_ORIGIN "Origin"
 #define HDR_X_REQUESTED_WITH "X-Requested-With"

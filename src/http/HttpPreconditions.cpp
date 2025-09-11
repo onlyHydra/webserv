@@ -1,14 +1,10 @@
 #include "HttpPreconditions.h"
-#include "HttpRequest.h"
-#include "Headers.h"
-#include "HEADER_ENTRIES.h"
 
-#include <ctime>
-#include <string>
-#include <vector>
-
-// ---- tiny helpers ---------------------------------------------------
-
+/**
+ * @brief Returns given string stripped at front and end of spaces and tabs
+ * @param s String to strip
+ * @returns the result of stripping
+ */
 static std::string trim_ws(const std::string& s) {
     std::string::size_type a = 0, b = s.size();
     while (a < b && (s[a] == ' ' || s[a] == '\t')) ++a;
@@ -16,6 +12,10 @@ static std::string trim_ws(const std::string& s) {
     return s.substr(a, b - a);
 }
 
+/**
+ * Splits string into substrings, based on commas
+ * Removes spaces and tabs before and after commas
+ */
 static void split_commas(const std::string& s, std::vector<std::string>& out) {
     out.clear();
     std::string cur;
@@ -73,37 +73,113 @@ static bool parse_http_date_rfc1123(const std::string& s, std::time_t& out) {
 
 // ---- public API -----------------------------------------------------
 
-bool HttpPreconditions::isNotModified(const HttpRequest& req,
-                                      const std::string& etag,
-                                      std::time_t mtime)
+bool HttpPreconditions::checkIsModifiedSince(const HttpRequest& req,
+									std::time_t mtime)
 {
-    const Headers& h = req.getHeaders();
+	const Headers &head = req.getHeaders();
+	const std::string ims = head.get(HDR_IF_MODIFIED_SINCE);
 
-    // 1) If-None-Match (strong precedence)
-    const std::string inm = h.get(HDR_IF_NONE_MATCH);
-    if (!inm.empty()) {
-        if (inm == "*") {
-            return true; // any representation matches
-        }
-        std::vector<std::string> etags;
-        split_commas(inm, etags);
-        for (std::vector<std::string>::size_type i = 0; i < etags.size(); ++i) {
-            const std::string candidate = trim_ws(etags[i]);
-            if (candidate == etag)
-                return true;
-        }
-        // If-None-Match present but no match -> treat as not satisfied; fall through.
-    }
+	// If No such Condition Header, always true
+	if (!head.keyExists(HDR_IF_MODIFIED_SINCE))
+		return (true);
+	
+	// Get Modification Time
+	std::time_t since = 0;
+	if (!parse_http_date_rfc1123(ims, since))
+		return (false);
+	
+	// Check if Modification is newer then checked time
+	if (mtime > since)
+		return (false);
+	return (true);
+}
 
-    // 2) If-Modified-Since
-    const std::string ims = h.get(HDR_IF_MODIFIED_SINCE);
-    if (!ims.empty()) {
-        std::time_t since = 0;
-        if (parse_http_date_rfc1123(ims, since)) {
-            if (mtime <= since)
-                return true; // not modified since IMS
-        }
-    }
+bool HttpPreconditions::checkIfNoneMatch(const HttpRequest &req, const std::string &etag)
+{
+	const Headers &h = req.getHeaders();
+	const std::string &inm = h.get(HDR_IF_NONE_MATCH);
+	std::vector<std::string> etags;
 
-    return false;
+	// If No such Condition Header, always true
+	if (inm.empty())
+		return (true);
+	
+	// If Wildcard
+	if (inm == "*")
+	{
+		// If Resource is not accesible, Condition valid -> true
+		if (etag.empty())
+			return (true);
+		return (false);
+	}
+	
+	// Check if ETag matches the ones in the Request Header
+	split_commas(inm, etags);
+	for (std::vector<std::string>::size_type i = 0; i < etags.size(); ++i)
+	{
+		if (ETagUtil::weakComp(trim_ws(etags[i]), etag))
+			return (false);
+	}
+
+	// No Matches for ETag with the Requests Header
+	return (true);
+}
+
+bool HttpPreconditions::checkIfMatch(const HttpRequest &req, const std::string &givenEtag)
+{
+	std::vector<std::string> etagArray;
+	const Headers &h = req.getHeaders();
+	const std::string &storedEtags = h.get(HDR_IF_MATCH);
+
+	// If no Key for checking Matching Etags
+	if (!h.keyExists(HDR_IF_MATCH))
+		return (true);
+	
+	// Any Matches
+	if (storedEtags == "*")
+	{
+		// If Resource is not accesible, Condition invalid -> false
+		if (givenEtag.empty())
+			return (false);
+		return (true);
+	}
+
+	// Go through all etags stored in the Header
+	split_commas(storedEtags, etagArray);
+	for (std::vector<std::string>::const_iterator it = etagArray.begin(); it != etagArray.end(); it++)
+	{
+		// If one matches the one we search -> true
+		if (ETagUtil::strongComp(*it, givenEtag))
+			return (true);
+	}
+	// No match found -> Given ETag is invalid
+	return (false);
+}
+
+bool HttpPreconditions::getPreconditons(const HttpRequest &req, const std::string &etag, const std::time_t &mtime)
+{
+	// If ETag matches known one -> false, 304 response
+	if (!HttpPreconditions::checkIfNoneMatch(req, etag))
+		return (false);
+
+	// If-None-Match Header should overwrite behaviour of If-Modified-Since
+	if (!req.getHeaders().keyExists(HDR_IF_NONE_MATCH))
+	{
+		// If file was not modified since check -> false, 304 response
+		if (!HttpPreconditions::checkIsModifiedSince(req, mtime))
+			return (false);
+	}
+	return (true);
+}
+
+bool	HttpPreconditions::putpatchPreconditons(const HttpRequest &req, const std::string &etag)
+{
+	// If ETag doesnt match known one -> false, 304 response
+	if (!HttpPreconditions::checkIfMatch(req, etag))
+		return (false);
+	
+	// If ETag matches known one -> false, 304 response
+	if (!HttpPreconditions::checkIfNoneMatch(req, etag))
+		return (false);
+	return (true);
 }

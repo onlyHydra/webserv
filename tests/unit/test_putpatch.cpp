@@ -13,13 +13,13 @@
 #include <unistd.h>
 
 /**
- * @brief Checks if a file has specified content
+ * @brief Checks if a file has specified contents
  * @param length Amount of bytes the Content will be
  * @param filename Name of the file to check
  * @param goal The Content that the file should have
  * @warning length and goal have to match 
  */
-void	checkFileContent(int length, const std::string &filename, const std::string &goal)
+static void	checkFileContent(int length, const std::string &filename, const std::string &goal)
 {
 		char buffer[length + 1];
 		std::ifstream in;
@@ -41,59 +41,64 @@ void	checkFileContent(int length, const std::string &filename, const std::string
 
 TEST_CASE("PUT_HANDLER", "[handler][put]")
 {
+	// Prepare ctx.effective root to be root of folder and ctx.rel_path to be filename
+	// Also prepare a file to contain the bodys information
+	RequestContext ctx;
+	PutPatchHandler pat;
 	char cwd[4096];
 	getcwd(cwd, sizeof(cwd));
-	std::string directory(cwd);
-	std::string path(cwd);
-	std::string bodyFile(cwd);
-	path += "/DeleteMe.txt";
-	bodyFile += "/DeleteMeBodyFile.txt";
+	ctx.effective_root = std::string(cwd);
+	ctx.rel_path = "/DeleteMe.txt";
+	ctx.temp_filename = std::string(cwd) + "/DeleteMeBodyFile.txt";
+	const char *bodyFile = ctx.temp_filename.c_str();
+	std::string fileString = (ctx.effective_root + ctx.rel_path);
+	const char *file = fileString.c_str();
 	SECTION("Normal test with Content from body")
 	{
 		{	// Put new file with some content
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
 			
-			std::remove(path.c_str());
+			std::remove(file);
 			std::string parse;
-			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
-			checkFileContent(7, path, "Abc123\n");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_FILE_CREATED);
+			checkFileContent(7, file, "Abc123\n");
+			std::remove(file);
 		}
 		{	// Put new file with less content
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
 
-			std::remove(path.c_str());
+			std::remove(file);
 			std::string parse;
-			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
-			checkFileContent(1, path, "X");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode()  == HTTP_FILE_CREATED);
+			checkFileContent(1, file, "X");
+			std::remove(file);
 		}
 		{	// Put existing file with less content
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
-			std::ofstream file;
+			std::ofstream stream;
 
-			file.open(path, std::ios::out | std::ios::binary);
-			if (file.is_open())
+			stream.open(file, std::ios::out | std::ios::binary);
+			if (stream.is_open())
 			{
-				file.write("123", 3);
-				file.close();
+				stream.write("123", 3);
+				stream.close();
 			}
 			std::string parse;
-			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_OK);
-			checkFileContent(1, path, "X");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);
+			checkFileContent(1, file, "X");
+			std::remove(file);
 		}
 	}
 	SECTION("Normal test with Content from temp file")
@@ -101,26 +106,25 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 		{	// Put new file with some content which comes from temp body file
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
-			std::ofstream file;
+			std::ofstream stream;
 			
 			ctx.temp_file_used = true;
-			ctx.temp_filename = bodyFile;
-			std::remove(bodyFile.c_str());
-			std::remove(path.c_str());
-			file.open(bodyFile, std::ios::out | std::ios::binary);
-			if (file.is_open())
+			std::remove(ctx.temp_filename.c_str());
+			std::remove(file);
+			stream.open(bodyFile, std::ios::out | std::ios::binary);
+			if (stream.is_open())
 			{
-				file.write("CONTENT", 7);
-				file.close();
+				stream.write("CONTENT", 7);
+				stream.close();
 			}
 			std::string parse;
-			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FILE_CREATED);
-			checkFileContent(7, path, "CONTENT");
-			std::remove(bodyFile.c_str());
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_FILE_CREATED);
+			checkFileContent(7, file, "CONTENT");
+			std::remove(bodyFile);
+			std::remove(file);
 		}
 	}
 	SECTION("Invalid test for writing")
@@ -128,23 +132,22 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 		{	// Invalid PUT on target with wrong permissions
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
-			std::string wrongAccess;
-			std::ofstream file;
+			std::ofstream stream;
 
-			wrongAccess = path + "invalid.txt";
-			file.open(wrongAccess, std::ios::out | std::ios::binary);
-			if (file.is_open())
+			std::remove(file);
+			stream.open(file, std::ios::out | std::ios::binary);
+			if (stream.is_open())
 			{
-				file.write("untouchable", 11);
-				file.close();
+				stream.write("untouchable", 11);
+				stream.close();
 			}
-			chmod(wrongAccess.c_str(), S_IRUSR | S_IRGRP | S_IROTH);
+			chmod(file, S_IRUSR | S_IRGRP | S_IROTH);
 			std::string parse;
-			parse = "PUT " + wrongAccess + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 7\r\n\r\nAbc123\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FORBIDDEN);
-			std::remove(wrongAccess.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(res.getStatusCode() == HTTP_FORBIDDEN);
+			std::remove(file);
 		}
 	}
 	SECTION("Invalid test for reading")
@@ -152,26 +155,25 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 		{	// Invalid PUT on target from temp file with wrong permissions
 			HttpRequest req;
 			HttpResponse res;
-			RequestContext ctx;
-			std::ofstream file;
+			std::ofstream stream;
 			
 			ctx.temp_file_used = true;
-			ctx.temp_filename = bodyFile;
-			std::remove(bodyFile.c_str());
-			std::remove(path.c_str());
-			file.open(bodyFile, std::ios::out | std::ios::binary);
-			if (file.is_open())
+			std::remove(bodyFile);
+			std::remove(file);
+			stream.open(bodyFile, std::ios::out | std::ios::binary);
+			if (stream.is_open())
 			{
-				file.write("CONTENT", 7);
-				file.close();
+				stream.write("CONTENT", 7);
+				stream.close();
 			}
-			chmod(bodyFile.c_str(), 0);
+			chmod(bodyFile, 0);
 			std::string parse;
-			parse = "PUT " + path + " HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
+			parse = "PUT / HttpVersion/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_put(req, res, ctx) == HTTP_FORBIDDEN);
-			std::remove(bodyFile.c_str());
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(res.getStatusCode() == HTTP_FORBIDDEN);
+			std::remove(bodyFile);
+			std::remove(file);
 		}
 	}
 }
@@ -179,16 +181,17 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 TEST_CASE("PATCH HANDLER", "[handler][patch]")
 {
 	RequestContext ctx;
-	ServerConfig cfg;
+	PutPatchHandler pat;
 	char cwd[4096];
 	getcwd(cwd, sizeof(cwd));
-	std::string directory(cwd);
-	std::string path(cwd);
-	std::string bodyFile(cwd);
-	std::string configFile(directory += "/config/extended.conf");
-	path += "/DeleteMe.txt";
-	bodyFile += "/DeleteMeBodyFile.txt";
-	cfg.parseFile(configFile);
+	ctx.effective_root = std::string(cwd);
+	ctx.rel_path = "/DeleteMe.txt";
+	ctx.temp_filename = std::string(cwd) + "/DeleteMeBodyFile.txt";
+	const char *bodyFile = ctx.temp_filename.c_str();
+	std::string fileString = ctx.effective_root + ctx.rel_path;
+	const char *file = fileString.c_str();
+	ServerConfig cfg;
+	cfg.parseFile(ctx.effective_root + "/config/extended.conf");
 	ctx.cfg = &cfg;
 	SECTION("Normal test with Content from body, append")
 	{
@@ -198,22 +201,19 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::ofstream pre;
 			std::string parse;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
-			"Content-Length: 7\r\n" + \
-			"Content-Type: application/vnd.webserv.append\r\n" + \
-			"\r\n" + \
-			"xXNEWXx";
+			parse = "PATCH / HttpVersion/1.1\r\nContent-Length: 7\r\nContent-Type: application/vnd.webserv.append\r\n\r\nxXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_OK);	
-			checkFileContent(10, path, "OLDxXNEWXx");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);
+			checkFileContent(10, file, "OLDxXNEWXx");
+			std::remove(file);
 		}
 	}
 	SECTION("Normal test with Content from body, overwrite")
@@ -224,23 +224,19 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::ofstream pre;
 			std::string parse;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
-			"Content-Length: 7\r\n" + \
-			HDR_PATCH_OFFSET + ": 2\r\n" +\
-			"Content-Type: application/vnd.webserv.overwrite\r\n" + \
-			"\r\n" + \
-			"xXNEWXx";
+			parse = "PATCH / HttpVersion/1.1\r\nContent-Length: 7\r\n" + std::string(HDR_PATCH_OFFSET) + ": 2\r\nContent-Type: application/vnd.webserv.overwrite\r\n\r\nxXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_OK);	
-			checkFileContent(9, path, "OLxXNEWXx");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);
+			checkFileContent(9, file, "OLxXNEWXx");
+			std::remove(file);
 		}
 	}
 	SECTION("Normal test with Content from body, overwrite, with big ass offset")
@@ -251,23 +247,24 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::ofstream pre;
 			std::string parse;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
+			parse = "PATCH / HttpVersion/1.1\r\n" \
 			"Content-Length: 7\r\n" + \
-			HDR_PATCH_OFFSET + ": 999999999\r\n" +\
+			std::string(HDR_PATCH_OFFSET) + ": 999999999\r\n" +\
 			"Content-Type: application/vnd.webserv.overwrite\r\n" + \
 			"\r\n" + \
 			"xXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_OK);	
-			checkFileContent(10, path, "OLDxXNEWXx");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);
+			checkFileContent(10, file, "OLDxXNEWXx");
+			std::remove(file);
 		}
 	}
 	SECTION("Normal test with Content from body, overwrite, with no offset")
@@ -278,63 +275,63 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::ofstream pre;
 			std::string parse;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
+			parse = std::string("PATCH / HttpVersion/1.1\r\n") + \
 			"Content-Length: 7\r\n" + \
 			"Content-Type: application/vnd.webserv.overwrite\r\n" + \
 			"\r\n" + \
 			"xXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_OK);	
-			checkFileContent(7, path, "xXNEWXx");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);
+			checkFileContent(7, file, "xXNEWXx");
+			std::remove(file);
 		}
 	}
 	SECTION("Normal test with Content from temp file, append")
 	{
 		ctx.temp_file_used = true;
-		ctx.temp_filename = bodyFile;
 		{	// Patch append file based on temp file
 			HttpRequest req;
 			HttpResponse res;
 			std::ofstream pre;
 			std::string parse;
-			std::ofstream file;
+			std::ofstream bodyStream;
 			
-			std::remove(bodyFile.c_str());
-			std::remove(path.c_str());
-			file.open(bodyFile, std::ios::out | std::ios::binary);
-			if (file.is_open())
+			std::remove(bodyFile);
+			std::remove(file);
+			bodyStream.open(bodyFile, std::ios::out | std::ios::binary);
+			if (bodyStream.is_open())
 			{
-				file.write("xXNEWXx", 7);
-				file.close();
+				bodyStream.write("xXNEWXx", 7);
+				bodyStream.close();
 			}
-			pre.open(path, std::ios::out | std::ios::binary);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
+			parse = std::string("PATCH / HttpVersion/1.1\r\n") + \
 			"Content-Length: 7\r\n" + \
 			"Content-Type: application/vnd.webserv.append\r\n" + \
 			"\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_OK);	
-			checkFileContent(10, path, "OLDxXNEWXx");
-			std::remove(path.c_str());
-			std::remove(bodyFile.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == true);
+			REQUIRE(res.getStatusCode() == HTTP_OK);	
+			checkFileContent(10, file, "OLDxXNEWXx");
+			std::remove(file);
+			std::remove(bodyFile);
 		}
 		ctx.temp_file_used = false;
-		ctx.temp_filename = "";
 	}
-	SECTION("Invalid test for Accepted-Patch methods and missing Content Type")
+	SECTION("Test for Accepted-Patch methods and missing Content Type")
 	{
 		{	// Checking Responses Allowed-Types Header Entry and missing Content-Type (patch method)
 			HttpRequest req;
@@ -342,26 +339,27 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::string parse;
 			std::ofstream pre;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
+			parse = std::string("PATCH / HttpVersion/1.1\r\n") + \
 			"Content-Length: 7\r\n" + \
 			"\r\n" + \
 			"xXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_INV_MEDIA);
+			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(res.getStatusCode() == HTTP_INV_MEDIA);
 			// Carefull! The order of theese will depend on the order of the extended.conf Mime types
 			REQUIRE(res.headers.get(HDR_ACCEPT_PATCH) == "application/vnd.webserv.append, application/vnd.webserv.overwrite");
-			checkFileContent(3, path, "OLD");
-			std::remove(path.c_str());
+			checkFileContent(3, file, "OLD");
+			std::remove(file);
 		}
 	}
-	SECTION("Invalid test for invalid method")
+	SECTION("Test for invalid method")
 	{
 		{	// Checking Forbidden / Invalid / Unknown Patch method
 			HttpRequest req;
@@ -369,22 +367,23 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			std::string parse;
 			std::ofstream pre;
 			
-			std::remove(path.c_str());
-			pre.open(path, std::ios::out | std::ios::binary);
+			std::remove(file);
+			pre.open(file, std::ios::out | std::ios::binary);
 			if (pre.is_open())
 			{
 				pre.write("OLD", 3);
 				pre.close();
 			}
-			parse = "PATCH " + path + " HttpVersion/1.1\r\n" + \
+			parse = std::string("PATCH / HttpVersion/1.1\r\n") + \
 			"Content-Length: 7\r\n" + \
 			"Content-Type: application/vnd.webserv.bogus\r\n" + \
 			"\r\n" + \
 			"xXNEWXx";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(PutPatchHandler::handle_patch(req, res, ctx) == HTTP_INV_MEDIA);
-			checkFileContent(3, path, "OLD");
-			std::remove(path.c_str());
+			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(res.getStatusCode() == HTTP_INV_MEDIA);	
+			checkFileContent(3, file, "OLD");
+			std::remove(file);
 		}
 	}
 }

@@ -10,21 +10,25 @@ Date: 8/16/2025
 
 # include <fcntl.h>
 # include <unistd.h>
+# include <errno.h>
 # include <iostream>
 # include <fstream>
 # include <vector>
+# include <sys/stat.h>
 # include "Handler.h"
 # include "HTTPCODES.h"
 # include "HEADER_ENTRIES.h"
+# include "HttpPreconditions.h"
 # include "Atoi.h"
+# include "ETagUtil.h"
 
 // Buffer size and how many bytes are read when we read from temp file containing body
 # define PUT_WRITE_BUFFER_SIZE 8192
 // Prefix for our custom patch methods (vnd.webserv.insert)
 # define CSTM_PATCH "vnd.webserv."
-// Mime Type for Patching in append mod
+// Mime Type for Patching in append mode
 # define MIME_PATCH_APPEND "application/vnd.webserv.append"
-// Mime Type for Patching in overwriting mod
+// Mime Type for Patching in overwriting mode
 # define MIME_PATCH_OVERWRITE "application/vnd.webserv.overwrite"
 // Counter how many Patch methods we have programmed
 # define MIME_PATCH_COUNTER 2
@@ -70,6 +74,7 @@ class PutPatchHandler : public Handler
 		
 		/**
 		 * @brief Creates or overwrites a file
+		 * @param path Path of the file to operate on
 		 * @param req Request that specifies the file to overwrite
 		 * @param res UNUSED Http Response, needs to be here to match the (...)::handle() prototype
 		 * @param ctx Context, how the file should be created
@@ -85,10 +90,11 @@ class PutPatchHandler : public Handler
 		 * Returns different codes based on if file already existed and was modified
 		 * or if the file was created completely new
 		 */
-		static int	handle_put(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_put(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 
 		/**
 		 * @brief Handles a Patch Request (augmenting an existing file)
+		 * @param path Path of file to operate on
 		 * @param req Request that specifies the file to overwrite
 		 * @param res Response, which will get some Header Data set from this function
 		 * @param ctx Context, how the file should be created
@@ -113,7 +119,23 @@ class PutPatchHandler : public Handler
 		 * Where it will give back all allowed patch MIME types in the specified format,
 		 * in a comma seperated string
 		 */
-		static int	handle_patch(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+		static int	handle_patch(const char *path, HttpRequest &req, HttpResponse &res, RequestContext &ctx);
+
+		/**
+		 * @brief Caller function for put and patch with the PutPatch Handler
+		 * 
+		 * Chooses the file of the path to operate on by using the contexts fields:
+		 * ctx.effective_root + ctx.rel_path, in order to get the whole path of our target file
+		 * May run conditionally, if the "If-Match" Header is given in the Request
+		 * Will then only run, if the Request Headers Conditions (Preconditions) are all valid
+		 * Should any Precondition not be valid, the handler creates a 304 response
+		 * @param req Request that specifies the file to overwrite
+		 * @param res Response, which will get some Header Data set from this function
+		 * @param ctx Context, how the file should be created		 
+		 * @returns true if Qequest was correctly processed
+		 * @returns false if it enocuntered an error
+		 */
+		bool	handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx);
 };
 
 #endif // PUTPATCHHANDLER_H
