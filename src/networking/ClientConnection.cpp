@@ -529,8 +529,6 @@ void ClientConnection::readBody()
     resetDeadline(WR_TIMEOUT_MS);
 }
 
-
-
 void ClientConnection::routeAndBuild()
 {
     // Let the pipeline decide and (possibly) start CGI.
