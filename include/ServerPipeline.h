@@ -6,8 +6,8 @@ Date: 8/10/2025
 ------------------------------------------ */
 
 // include/ServerPipeline.h
-#ifndef SERVER_PIPELINE_H
-#define SERVER_PIPELINE_H
+#ifndef SERVERPIPELINE_H
+#define SERVERPIPELINE_H
 
 #include "HttpRequest.h"
 #include "HttpResponse.h"
@@ -30,5 +30,5 @@ public:
                                CGIStreamer* cgi_streamer); // <-- 6th param
 };
 
-#endif // SERVER_PIPELINE_H
+#endif // SERVERPIPELINE_H
 

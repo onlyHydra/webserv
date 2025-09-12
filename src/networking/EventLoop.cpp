@@ -137,6 +137,7 @@ void EventLoop::run(int timeout_ms)
 		{
 			const int fd = dispatch[i].first;
 			const short rev = dispatch[i].second;
+			if (DEBUG_CGI) // Defined in Debug.h, changed so now final version doesnt output
 			fprintf(stderr, "[EV] fd=%d revents=0x%x%s%s%s%s%s\n",
 							fd, rev,
 							(rev & POLLIN) ? " POLLIN" : "",

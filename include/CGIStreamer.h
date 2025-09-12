@@ -1,5 +1,5 @@
-#ifndef CGI_STREAMER_H
-#define CGI_STREAMER_H
+#ifndef CGISTREAMER_H
+#define CGISTREAMER_H
 
 #include <string>
 #include <vector>
@@ -148,4 +148,4 @@ private:
     bool stdout_paused_; 
 };
 
-#endif // CGI_STREAMER_H
+#endif // CGISTREAMER_H

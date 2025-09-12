@@ -201,6 +201,7 @@ CgiHandler::~CgiHandler() {}
 bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
 
+    if (DEBUG_CGI) // Defined in Debug.h, changed so now final version doesnt output
     std::fprintf(stderr, "[CGI] handle enter method=%s path=%s body_len=%zu temp=%d\n",
              req.getMethod().c_str(), req.getPath().c_str(),
              (size_t)req.getBodyLength(), (int)ctx.temp_file_used);
@@ -271,6 +272,7 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
     {
         int in  = ctx.cgi_streamer->cgiStdinFD();
         int out = ctx.cgi_streamer->cgiStdoutFD();
+        if (DEBUG_CGI) // Defined in Debug.h, changed so now final version doesnt output
         std::fprintf(stderr, "[CGI] begin ok inFD=%d outFD=%d\n", in, out);
     }
     // <<<----------------------------------------------------------------->>>
@@ -282,6 +284,7 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
     if (has_body) {
     int inFD  = ctx.cgi_streamer->cgiStdinFD();
     int outFD = ctx.cgi_streamer->cgiStdoutFD();
+    if (DEBUG_CGI) // Defined in Debug.h, changed so now final version doesnt output
     std::fprintf(stderr, "[CGI] register POLLOUT for inFD=%d; POLLIN for outFD=%d\n", inFD, outFD);
 
         // Whatever your event-loop API is, ensure both registrations happen:

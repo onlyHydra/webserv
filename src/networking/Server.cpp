@@ -27,12 +27,12 @@ static void throwErr(const char *what)
 }
 
 EventLoop& Server::getLoop() {
-    return loop_;
+    return loop;
 }
 
 Server::Server(ServerConfig &srvConfig) : srvConfig(srvConfig)
 {
-	this->loop_ = EventLoop();
+	this->loop = EventLoop();
 	serverpipeline = new ServerPipeline();
 }
 
@@ -49,7 +49,7 @@ void Server::registerListeners()
 	{
 		if (*it && (*it)->getFD() >= 0)
 		{
-			loop_.addFD((*it)->getFD(), POLLIN, new AcceptorHandler(loop_, *this, *it));
+			loop.addFD((*it)->getFD(), POLLIN, new AcceptorHandler(loop, *this, *it));
 		}
 	}
 }
@@ -67,7 +67,7 @@ void Server::unregisterListeners()
         const int fd = lst->getFD();
         if (fd >= 0) {
             // Also deletes the per-fd handler inside EventLoop, if any.
-            loop_.removeFD(fd);
+            loop.removeFD(fd);
         }
 		delete lst;  // Listener dtor should close its fd (RAII)
 		*it = 0;
@@ -108,7 +108,7 @@ void Server::stop()
 {
 	unregisterListeners();
 	closeAll();
-	loop_.stop();
+	loop.stop();
 	shutdownAllHandlers();
 }
 
@@ -327,7 +327,7 @@ void Server::start()
 
 void Server::run(int poll_timeout_ms) {
 	if (listeners.empty()) start();
-	loop_.run(poll_timeout_ms);
+	loop.run(poll_timeout_ms);
 }
 
 static std::string normalize_host(const std::string &h)
