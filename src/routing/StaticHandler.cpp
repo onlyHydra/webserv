@@ -113,7 +113,7 @@ static std::string httpDate(time_t t)
 /* 
 
 Determines a MIME type. First, it checks server configuration’s mime_mapping using the lowercase extension. 
-If not found, it falls back to common types (text/html, application/javascript, image/*, etc.), 
+If not found, it falls back to common types (text/html, application/javascript, image/, etc.), 
 defaulting to application/octet-stream. Centralized guessing ensures consistent Content-Type headers 
 for static files regardless of where they’re served (index page, directory file, or error page). 
 Relying on configuration first enables user-controlled mappings and future extensibility 

@@ -707,10 +707,10 @@ void ClientConnection::onTick(unsigned long long now_ms)
 
 	// -------------------------------------------------------------------------
 
-	if (io.getFlow().shouldPauseRead(outbytes))
-		io.getFlow().setReadPaused(true);
-	if (io.getFlow().shouldResumeRead(outbytes))
-		io.getFlow().setReadPaused(false);
+    if (io.getFlow().shouldPauseRead(outbytes))
+        io.getFlow().setReadPaused(true);
+    if (io.getFlow().shouldResumeRead(outbytes))
+        io.getFlow().setReadPaused(false);
 
 	// 2) Try to flush whatever is queued (static or CGI)
 	(void)io.nb_write();
@@ -1037,7 +1037,7 @@ This step centralizes correctness checks and ensures that the actual body phase 
 
 void ClientConnection::runPreflight()
 {
-	const Headers &H = req.getHeaders();
+    const Headers &H = req.getHeaders();
 
 	HeaderCheck hc = HeaderProcessor::analyze(req, H, max_body_bytes);
 	if (!hc.ok)
@@ -1046,24 +1046,19 @@ void ClientConnection::runPreflight()
 		return;
 	}
 
-	if (!pr.ok)
-	{
-		fail(pr.reject_status ? pr.reject_status : 400, pr.reject_reason.c_str());
-		return;
-	}
+    if (!pr.ok) { fail(pr.reject_status ? pr.reject_status : 400, pr.reject_reason.c_str()); return; }
 
-	max_body_bytes = pr.max_body_bytes;
+    max_body_bytes = pr.max_body_bytes;
 
 	if (hc.expect_continue && ExpectContinue::needed(req.getHeaders()))
 	{
 		ExpectContinue::write100(io.getChainBuf());
 	}
 
-	if (!pr.needs_body)
-	{
-		state = PH_ROUTE;
-		return;
-	}
+    if (!pr.needs_body) {
+        state = PH_ROUTE;
+        return;
+    }
 
 	if (hc.chunked)
 	{
@@ -1105,6 +1100,7 @@ void ClientConnection::runPreflight()
 
 /* 
 
+// --- in ClientConnection.cpp ---
 void ClientConnection::readBody()
 
 Streams request body from the ring into the selected reader (chunked decoder, in-RAM fixed, or temp-file writer). 
@@ -1281,6 +1277,10 @@ void ClientConnection::routeAndBuild()
 	resetDeadline(WR_TIMEOUT_MS);
 	state = PH_WRITE;
 	resetDeadline(WR_TIMEOUT_MS);
+	state = PH_WRITE;
+	resetDeadline(WR_TIMEOUT_MS);
+	state = PH_WRITE;
+	resetDeadline(WR_TIMEOUT_MS);
 }
 
 
@@ -1300,8 +1300,8 @@ This function implements HTTP/1.1 keep-alive efficiently while ensuring clean st
 
 void ClientConnection::finishWriteOrNext()
 {
-	if (io.getChainBuf().getByteSize() != 0)
-		return;
+    if (io.getChainBuf().getByteSize() != 0)
+        return;
 
 	if (cgi.isActive() || cgi.cgiStdoutFD() >= 0 || cgi.hasOutBytes())
 		return;
@@ -1350,7 +1350,8 @@ This uniform path keeps the server’s behavior predictable for clients and simp
 */
 
 
-void ClientConnection::fail(int code, const char *reason)
+
+void ClientConnection::fail(int code, const char* reason)
 {
 	res = ResponseFactory::makeText(code, "", reason ? reason : "", true);
 
@@ -1413,11 +1414,7 @@ large ones spill to disk safely. It integrates tightly with later stall/flush wa
 
 void ClientConnection::decideBodyReader(std::size_t content_length)
 {
-	if (body)
-	{
-		delete body;
-		body = 0;
-	}
+    if (body) { delete body; body = 0; }
 
 	const std::size_t cap = (max_body_bytes != 0) ? max_body_bytes : static_cast<std::size_t>(~0);
 

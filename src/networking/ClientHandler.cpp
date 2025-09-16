@@ -56,7 +56,7 @@ This function ensures every event is correctly propagated.
 
 void ClientHandler::onEvent(int fd, short revents)
 {
-	const unsigned long long now = nowMs();
+    const unsigned long long now = nowMs();
 
 	const int sockfd = clientConnection->fd();
 

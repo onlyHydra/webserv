@@ -169,5 +169,10 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg,
     // ---- Execute handler ----
     const bool done = h->handle(req, res, ctx);
     delete h;
+
+    // done == true  → synchronous handler produced a full response
+    // done == false → asynchronous (e.g., CGI started). Caller should keep connection in PH_WRITE and stream.
     return done;
 }
+
+

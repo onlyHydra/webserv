@@ -53,9 +53,6 @@ static std::string trim_ws(const std::string& s)
 	It’s the foundation for reliable multi-ETag evaluation.
  
  */
-
-
-
 static void split_commas(const std::string& s, std::vector<std::string>& out) {
     out.clear();
     std::string cur;

@@ -7,8 +7,8 @@
 
 ssize_t ConnectionIO::nb_read(std::size_t maxBytes)
 {
-	if (!socket.valid())
-		return -1;
+    if (!socket.valid())
+        return -1;
 
 	in.compactIfNeeded();
 
@@ -18,8 +18,8 @@ ssize_t ConnectionIO::nb_read(std::size_t maxBytes)
 	if (maxBytes < space)
 		space = maxBytes;
 
-	char *dst = in.writePtr();
-	ssize_t n = ::recv(socket.get(), dst, (int)space, MSG_DONTWAIT);
+    char *dst = in.writePtr();
+    ssize_t n = ::recv(socket.get(), dst, (int)space, MSG_DONTWAIT);
 
 	if (n > 0) {
 		in.wrote((std::size_t)n);
@@ -31,18 +31,18 @@ ssize_t ConnectionIO::nb_read(std::size_t maxBytes)
 
 ssize_t ConnectionIO::nb_write()
 {
-	if (!socket.valid())
-		return -1;
-	if (out.empty())
-		return 0;
+    if (!socket.valid())
+        return -1;
+    if (out.empty())
+        return 0;
 
-	// Copy a bounded window from the front of the chain into the scratch buffer
-	const std::size_t kMaxPerSend = 128u * 1024u;
-	std::size_t n_to_send = out.copy_front_into(tx_scratch, kMaxPerSend);
-	if (n_to_send == 0)
-		return 0;
+    // Copy a bounded window from the front of the chain into the scratch buffer
+    const std::size_t kMaxPerSend = 128u * 1024u;
+    std::size_t n_to_send = out.copy_front_into(tx_scratch, kMaxPerSend);
+    if (n_to_send == 0)
+        return 0;
 
-	ssize_t n = ::send(socket.get(), &tx_scratch[0], (int)n_to_send, MSG_DONTWAIT);
+    ssize_t n = ::send(socket.get(), &tx_scratch[0], (int)n_to_send, MSG_DONTWAIT);
 
 	if (n > 0) {
 		out.dropFront((std::size_t)n);

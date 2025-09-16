@@ -4,6 +4,7 @@
 #include <string>
 #include "ServerConfig.h"
 #include "VirtualServer.h"
+#include "ClientConnection.h"
 #include "CGIStreamer.h"
 
 // Forward declaration to avoid circular include
@@ -54,3 +55,4 @@ struct RequestContext
 };
 
 #endif // REQUEST_CONTEXT_H
+

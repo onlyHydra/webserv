@@ -8,6 +8,15 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include "HttpRequest.h"
+#include "HttpResponse.h"
+#include "ChainBuf.h"
+#include "CgiProcess.h"
+#include "EventLoop.h"  
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
 #include <sstream>
 #include <vector>
 #include <poll.h>   // POLLIN, POLLOUT
