@@ -145,7 +145,7 @@ TEST_CASE("Delete Static Handler", "[handler][static][delete]")
 			std::string parse;
 			parse = "DELETE / HttpVersion/1.1\r\nContent-Length: 1\r\n\r\nX";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(handle.handle(req, res, ctx) == false);
+			REQUIRE(handle.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_NOT_FOUND);
 			REQUIRE(compareBody(res.body, std::string(cwd) + std::string("/www/errors/404.html")));
 		}

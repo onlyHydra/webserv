@@ -21,6 +21,20 @@
 // void CGIStreamer::attachLoop(EventLoop* L) { loop_ = L; }
 
 // --- tiny helper: RFC1123 Date string (GMT) ---
+
+/* 
+
+static std::string http_date_now_gmt()
+
+Formats the current time as an RFC-1123 Date header in GMT. CGI responses may omit standard HTTP metadata; 
+adding a correct Date improves caching and client behavior. Centralizing the formatter prevents inconsistent strings or 
+locale surprises. It uses std::time, std::gmtime, and std::strftime into a fixed buffer, returning a compact string. 
+Because it’s small and allocation-light, it’s safe on hot paths when headers are finalized. 
+This helper is called by finalizeHeaders() to ensure every CGI response has a Date, even when the CGI itself didn’t emit one.
+
+*/
+
+
 static std::string http_date_now_gmt()
 {
 	char buf[64];
@@ -31,6 +45,22 @@ static std::string http_date_now_gmt()
 }
 
 // --- case-insensitive equals for ASCII keys ---
+
+/* 
+
+static bool iequals_ascii(const std::string& a, const std::string& b)
+
+ASCII-only case-insensitive equality used while parsing CGI-emitted headers. 
+HTTP header names are case-insensitive; many CGIs also vary capitalization of keys like Status, 
+Content-Type, or Set-Cookie. Implementing a tight loop (manual A–Z downcase) avoids 
+locale costs and keeps parsing deterministic. Returning false on size mismatch short-circuits quickly. 
+Using this function inside parseOneHeaderLine ensures robust behavior regardless of header casing, 
+without pulling heavier utilities. The strict ASCII scope matches HTTP token space, 
+eliminating edge-case surprises and keeping CPU overhead minimal when processing many short header lines.
+
+*/
+
+
 static bool iequals_ascii(const std::string &a, const std::string &b)
 {
 	if (a.size() != b.size())
@@ -48,6 +78,23 @@ static bool iequals_ascii(const std::string &a, const std::string &b)
 	}
 	return true;
 }
+
+
+
+/* 
+
+CGIStreamer::CGIStreamer(HttpRequest& req, HttpResponse& res)
+
+Constructor wiring the streamer to the current request and response. 
+It initializes event-loop pointer to NULL (attached elsewhere), resets CGI activity flags, 
+fds, body streaming offsets (in-memory or disk), header parser state, Set-Cookie accumulator, 
+output framing (chunked mode off until finalized), and timeout trackers. No OS work occurs here—spawning 
+the CGI and registering fds happens in beginCgi. The careful zeroing ensures reuse across keep-alive requests without stale state. 
+This separation keeps responsibilities clear: configuration and process management happen later, 
+while the streamer simply starts in a predictable, safe baseline.
+
+
+*/
 
 CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
 	: req_(req), res_(res), proc_()
@@ -81,6 +128,23 @@ CGIStreamer::CGIStreamer(HttpRequest &req, HttpResponse &res)
 	// nothing else to do
 }
 
+
+/* 
+
+CGIStreamer::~CGIStreamer()
+
+Destructor ensures descriptor hygiene by calling closeStdin() and closeStdout(). 
+The actual child process lifecycle is owned by CgiProcess, 
+but the streamer owns registrations in the EventLoop and must unregister/close its pipe fds. 
+Idempotent closing prevents dangling poll registrations, spurious wakeups, 
+or resource leaks after request teardown. Keeping destructor small and side-effect-free beyond 
+cleanup makes error paths and early exits safe: even if multiple subsystems try to tidy up, 
+repeated closes won’t crash or double-free. This aligns with RAII expectations in a long-running, 
+event-driven server.
+
+
+*/
+
 CGIStreamer::~CGIStreamer()
 {
 	closeStdin();
@@ -88,6 +152,20 @@ CGIStreamer::~CGIStreamer()
 }
 
 // --- enqueue helpers (chunked-aware) ---
+
+
+/* 
+
+void enqueueOut(const char* data, std::size_t len)
+
+Queues bytes for the client, handling HTTP/1.1 chunked framing when chunked_mode_ is enabled. For chunked mode, 
+it writes <hex>\r\npayload\r\n; otherwise, it appends raw payload. 
+Centralizing this logic lets higher-level code just “write body” and the streamer guarantees the correct wire format. 
+It minimizes copying by appending directly into out_buf_, which the connection drains via takeOutBytes. 
+This function is performance-sensitive: small, allocation-aware operations are critical when streaming large CGI outputs. 
+Correct framing enables persistent connections without knowing Content-Length.
+
+*/
 
 void CGIStreamer::enqueueOut(const char *data, std::size_t len)
 {
@@ -112,6 +190,20 @@ void CGIStreamer::enqueueOut(const char *data, std::size_t len)
 	}
 }
 
+
+/* 
+
+void enqueueFinalChunk()
+
+Appends the terminating chunk "0\r\n\r\n" exactly once when chunked transfer encoding is active. 
+This marks end-of-message to clients if no Content-Length was provided, allowing keep-alive reuse of the connection. 
+The sent_final_chunk_ guard prevents duplicate terminators when multiple code paths converge 
+(EOF, error, or finalization). Centralizing termination logic ensures consistent behavior across 
+normal completion and error paths, improving robustness with intermediaries 
+and browsers that depend on unambiguous message boundaries.
+
+*/
+
 void CGIStreamer::enqueueFinalChunk()
 {
 	if (sent_final_chunk_)
@@ -121,6 +213,23 @@ void CGIStreamer::enqueueFinalChunk()
 	sent_final_chunk_ = true;
 }
 
+
+
+/* 
+
+void pauseStdoutReads() / void resumeStdoutReads()
+
+Flow-control hooks that toggle POLLIN interest for the CGI stdout fd in the event loop. 
+When downstream (client) buffers are high, pauseStdoutReads() suspends reads to prevent unbounded memory growth; 
+resumeStdoutReads() re-enables reads after pressure subsides. 
+These are essential for fairness across connections and for avoiding memory bloat when clients are slow. 
+They integrate with hints from ClientConnection (client_out_bytes_) and are idempotent to simplify callers. 
+Managing readiness interest instead of reading and discarding bytes 
+keeps the system lossless and cooperative in a single-poll architecture.
+
+
+*/
+
 void CGIStreamer::pauseStdoutReads()
 {
 	if (stdout_paused_)
@@ -129,6 +238,7 @@ void CGIStreamer::pauseStdoutReads()
 		loop_->modFD(cgi_out_fd_, 0);
 	stdout_paused_ = true;
 }
+
 
 void CGIStreamer::resumeStdoutReads()
 {
@@ -140,6 +250,21 @@ void CGIStreamer::resumeStdoutReads()
 }
 
 // --- header parsing ---
+
+
+/* 
+
+void parseOneHeaderLine(const std::string& line)
+
+Parses one Key: Value header line from the CGI. Special-cases Status: <code> <reason> to override the response’s 
+status line. Recognizes Content-Type to set an explicit content type and tracks presence, 
+and accumulates multiple Set-Cookie values. All other headers are forwarded onto res_.headers 
+for potential propagation. This incremental approach builds a complete outgoing head based on the 
+CGI’s choices, while leaving finalizeHeaders() responsible for defaults and required fields. 
+Handling Status correctly is critical because many CGIs (e.g., PHP) use it to signal application-level errors.
+
+
+*/
 
 void CGIStreamer::parseOneHeaderLine(const std::string &line)
 {
@@ -186,6 +311,21 @@ void CGIStreamer::parseOneHeaderLine(const std::string &line)
 	// Other headers can be forwarded if desired:
 	res_.headers.set(key, val);
 }
+
+
+/* 
+
+void finalizeHeaders()
+
+Builds and queues the HTTP status line and minimal essential headers exactly once. 
+If CGI didn’t provide Content-Type, defaults to text/plain. It forces Transfer-Encoding: 
+chunked and sets Connection, Date, Server, and emits all collected Set-Cookie headers. 
+The function temporarily disables chunking to enqueue the head un-chunked (correct framing), 
+then restores mode for the body. A one-time guard prevents duplicate heads. 
+This guarantees well-formed responses even if the CGI never emitted headers or closed prematurely, 
+keeping browser and proxy behavior correct.
+
+*/
 
 // Build and queue the HTTP head once (after CGI headers parsed).
 void CGIStreamer::finalizeHeaders()
@@ -251,6 +391,19 @@ void CGIStreamer::finalizeHeaders()
 
 #include <poll.h> // POLLIN, POLLOUT
 
+
+/* 
+
+void closeStdin() / void closeStdout()
+
+Unregister the CGI pipe fd from the event loop and close it, resetting the fd to -1. 
+Closing stdin early (no body or finished sending) unblocks CGIs that wait for EOF before producing output. 
+Closing stdout at EOF or after errors prevents further reads and ensures the event loop won’t watch stale descriptors. 
+Encapsulating this logic avoids duplicated poll modifications and makes 
+cleanup idempotent—critical during timeouts, disconnects, or crashes.
+
+*/
+
 void CGIStreamer::closeStdin()
 {
 #if defined(DEBUG)
@@ -278,6 +431,21 @@ void CGIStreamer::closeStdout()
 		cgi_out_fd_ = -1;
 	}
 }
+
+
+/* 
+
+void reset()
+
+Returns the streamer to a pristine state: closes both pipe fds, 
+clears failure/active flags, resets body offsets and temp file handle/path, 
+wipes header parser state, cookies, output buffers, chunked flags, deadlines, 
+and waterline hints. Designed for reuse across keep-alive requests or after errors, 
+it ensures no cross-request contamination. Clearing everything centrally simplifies 
+higher-level code and prevents subtle bugs where previous 
+CGI state leaks into a new request.
+
+*/
 
 void CGIStreamer::reset()
 {
@@ -316,6 +484,18 @@ void CGIStreamer::reset()
 	total_deadline_.clear();
 }
 
+/* 
+
+void resetWriteDeadline()
+
+Arms/refreshes a write-progress watchdog (write_deadline_ms_ = now + WRITE_TIMEOUT_MS). 
+If stdin writes don’t progress by the deadline, onTick() will close stdin to unblock the child. 
+This protects the server from scripts that read slowly (or stop reading) while still 
+allowing normal streaming. Implemented with gettimeofday for lightweight millisecond precision, 
+it’s called after successful writes in onCgiWritable.
+
+*/
+
 void CGIStreamer::resetWriteDeadline()
 {
 	struct timeval tv;
@@ -327,6 +507,20 @@ void CGIStreamer::resetWriteDeadline()
 }
 
 // --- public API ---
+
+
+/* 
+
+bool beginCgi(const CgiSpec& spec, const std::string& script_path, const std::vector<std::string>& envv)
+
+Resets runtime state, spawns the CGI via proc_.spawn, retrieves stdin/stdout fds, 
+and applies O_NONBLOCK and FD_CLOEXEC. Registers POLLIN for stdout and POLLOUT for stdin with the event loop, 
+unless the request has no body—in which case it proactively closes stdin to unblock the child. 
+It also discovers the body source (disk path or memory) from HttpRequest, initializes header parsing variables, 
+clears output buffers, and sets header/total runtime deadlines plus the write watchdog. 
+Returns true when the streamer is active and ready for polling; otherwise failed_ is set.
+
+*/
 
 bool CGIStreamer::beginCgi(const CgiSpec &spec,
 						   const std::string &script_path,
@@ -435,11 +629,38 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
 	return true;
 }
 
+/* 
+
+
+void startHeaderPhase(unsigned long long now_ms)
+
+Re-arms the header-phase deadline from now_ms. 
+Useful if the pipeline wants to allow fresh time for header arrival 
+(e.g., after initial setup). If headers still don’t arrive before the new deadline, onTick() 
+will time out and fail safely. Keeping this separate from 
+beginCgi provides flexible timeout policy without respawning.
+
+*/
+
 void CGIStreamer::startHeaderPhase(unsigned long long now_ms)
 {
 	// Re-arm header deadline with default 3s (same as beginCgi()).
 	hdr_deadline_.reset(now_ms, 10000);
 }
+
+
+/* 
+
+
+void onTick(unsigned long long now_ms)
+
+Periodic timer hook enforcing timeouts. If headers haven’t arrived by hdr_deadline_ or total runtime exceeds total_deadline_, 
+it calls timeout504() to terminate the CGI and mark failure. It also checks the stdin write watchdog: 
+if the child fails to read in time, it closes stdin, avoiding indefinite stalls. 
+This makes CGI processing cooperative and bounded under the single-poll 
+architecture, guaranteeing requests never hang forever.
+
+*/
 
 void CGIStreamer::onTick(unsigned long long now_ms)
 {
@@ -460,6 +681,19 @@ void CGIStreamer::onTick(unsigned long long now_ms)
 		write_deadline_ms_ = 0; // avoid repeated triggers
 	}
 }
+
+
+/* 
+
+std::size_t takeOutBytes(ChainBuf& out, std::size_t max_bytes)
+
+Transfers up to max_bytes from the internal out_buf_ into the connection’s ChainBuf, 
+advancing out_off_ and compacting when drained. Returning the number moved informs 
+the caller whether to keep POLLOUT enabled for the client socket. 
+This function decouples CGI framing from actual socket writes, letting ClientConnection control 
+fairness and per-tick throughput while the streamer simply provides ready bytes.
+
+*/
 
 std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
 {
@@ -487,6 +721,21 @@ std::size_t CGIStreamer::takeOutBytes(ChainBuf &out, std::size_t max_bytes)
 }
 
 // --- I/O driving ---
+
+
+/* 
+
+void onCgiReadable(int fd)
+
+Handles POLLIN on CGI stdout. During header phase, it accumulates bytes until \r\n\r\n or \n\n, 
+then parses headers line-by-line via parseOneHeaderLine and calls finalizeHeaders(). 
+If no header terminator appears and heuristics indicate “not headers” (no colon on first line, or too big), 
+it synthesizes a safe head and treats data as body. After headers, 
+it streams body chunks with backpressure checks (wantsRead()), 
+and on EOF closes stdout, enqueues the final chunk (if chunked), 
+and marks inactive. Errors set failed_. This is the heart of CGI output handling
+
+*/
 
 void CGIStreamer::onCgiReadable(int fd)
 {
@@ -686,6 +935,19 @@ void CGIStreamer::onCgiReadable(int fd)
 		return;
 	}
 }
+
+
+/* 
+
+void onCgiWritable(int fd)
+
+Handles POLLOUT on CGI stdin. Determines body source: disk-backed (open once, pread from logical offset) 
+or in-memory (req_.getBody()). Writes in bounded chunks (16KB), handles EAGAIN/EINTR/EPIPE, updates cgi_body_off_, 
+and refreshes the write watchdog on progress. When all bytes are sent, it closes stdin to signal EOF, 
+unblocking CGIs that wait for end-of-input before producing output. This function ensures large uploads 
+are streamed safely without blocking or monopolizing the event loop, respecting fairness across connections.
+
+*/
 
 void CGIStreamer::onCgiWritable(int fd)
 {
@@ -897,6 +1159,19 @@ void CGIStreamer::onCgiWritable(int fd)
 		}
 	}
 }
+
+/* 
+
+void timeout504()
+
+Uniform timeout handler: closes stdin/stdout, calls proc_.terminate() 
+to kill/reap the child, marks inactive and failed. 
+Higher layers then generate a 504 Gateway Timeout (or mapped error page). 
+Centralizing teardown guarantees descriptors are gone, prevents partial states, 
+and leaves the connection ready to deliver an error response or close. 
+This meets the requirement that no request can hang indefinitely
+
+*/
 
 // --- timeout handling ---
 

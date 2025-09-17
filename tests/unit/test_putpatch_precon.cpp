@@ -131,7 +131,7 @@ TEST_CASE("PUT_HANDLER ETag", "[handler][put][etag]")
 			parse += "\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("Abc123\n", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_PRECON_FAIL);
 			checkFileContent(3, file, "123");
 			std::remove(file);
@@ -178,7 +178,7 @@ TEST_CASE("PUT_HANDLER ETag", "[handler][put][etag]")
 			parse += "\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("Abc123\n", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_PRECON_FAIL);
 			checkFileContent(3, file, "123");
 			std::remove(file);
@@ -205,7 +205,7 @@ TEST_CASE("PUT_HANDLER ETag", "[handler][put][etag]")
 			parse += "\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("Abc123\n", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_PRECON_FAIL);
 			checkFileContent(3, file, "123");
 			std::remove(file);

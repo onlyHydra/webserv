@@ -1,6 +1,5 @@
 #include "ServerConfig.h"
 #include "HTTPCODES.h"
-
 #include <fstream>
 #include <sstream>
 #include <stdexcept>

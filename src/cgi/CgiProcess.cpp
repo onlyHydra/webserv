@@ -20,6 +20,20 @@ date: 8/10/2025
 
 // ---- tiny helpers ---------------------------------------------------------
 
+
+/* 
+
+static inline int xclose(int &fd)
+
+Utility that closes a file descriptor if it’s open (≥0) and resets it to -1. 
+Prevents descriptor leaks and double-closes. Centralizing this small helper simplifies 
+cleanup code across the class, making closeIn, closeOut, and closeBoth safe to call repeatedly 
+even when descriptors were already closed. 
+It’s widely used in RAII-style cleanup to reduce error-prone manual close() calls.
+
+
+*/
+
 static inline int xclose(int &fd)
 {
 	if (fd >= 0)
@@ -30,12 +44,36 @@ static inline int xclose(int &fd)
 	return 0;
 }
 
+
+/* 
+
+unsigned long long CgiProcess::nowMs()
+
+Returns current wall-clock time in milliseconds using gettimeofday. 
+Used for deadline tracking in CGI processes, especially timeouts configured via spawn. 
+Millisecond precision is sufficient for CGI lifetime management without heavy dependencies. 
+By wrapping this call, other parts of the server can enforce time-based rules (like aborting stuck scripts) consistently.
+
+*/
+
 unsigned long long CgiProcess::nowMs()
 {
 	struct timeval tv;
 	::gettimeofday(&tv, 0);
 	return (unsigned long long)tv.tv_sec * 1000ULL + (unsigned long long)(tv.tv_usec / 1000ULL);
 }
+
+
+/* 
+
+bool CgiProcess::setNonBlocking(int fd)
+
+Sets O_NONBLOCK on a file descriptor. This is required so that CGI stdin/out 
+pipes work seamlessly within the server’s non-blocking event loop. Without it, 
+reading/writing could stall the entire process. Wrapping this logic ensures a consistent 
+error-checked way to apply the setting across all descriptors used in CGI.
+
+*/
 
 bool CgiProcess::setNonBlocking(int fd)
 {
@@ -44,6 +82,18 @@ bool CgiProcess::setNonBlocking(int fd)
 		return false;
 	return ::fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0;
 }
+
+
+/* 
+
+bool CgiProcess::setCloseOnExec(int fd)
+
+Sets the FD_CLOEXEC flag, ensuring file descriptors do not leak into child processes across 
+future execve calls. This is vital when the server later spawns additional CGI programs; 
+stray descriptors could cause resource leaks or unintended sharing. 
+Encapsulation ensures consistent, deliberate application of this safeguard.
+
+*/
 
 bool CgiProcess::setCloseOnExec(int fd)
 {
@@ -55,6 +105,20 @@ bool CgiProcess::setCloseOnExec(int fd)
 
 // ---- lifecycle ------------------------------------------------------------
 
+
+/* 
+
+CgiProcess::CgiProcess() / ~CgiProcess()
+
+The constructor initializes process state: _pid=-1, _in=-1, _out=-1, _deadline=0. 
+Destructor calls terminate() to reap/kick children and close descriptors. 
+This RAII setup ensures processes cannot outlive their parent’s object lifetime, 
+avoiding zombie processes and leaks. The lightweight constructor/destructor 
+design is essential for safe stack or container-based storage of CgiProcess objects.
+
+
+*/
+
 CgiProcess::CgiProcess()
 	: _pid(-1), _in(-1), _out(-1), _deadline(0ULL) {}
 
@@ -62,6 +126,22 @@ CgiProcess::~CgiProcess()
 {
 	terminate(); // safe if already reaped/closed
 }
+
+
+/* 
+
+bool CgiProcess::spawn(const CgiSpec&, const std::string&, const std::vector<std::string>&)
+
+High-level spawn function. Creates two pipes (stdin/stdout), 
+forks, and in the child: duplicates pipe ends, closes extras, builds argv/envp, and calls execve. 
+Parent keeps the write end of stdin and read end of stdout, 
+applies non-blocking + CLOEXEC, and records child PID. 
+This variant simplifies launching CGI scripts given only a spec, 
+script path, and environment variables. It isolates complexity, 
+enabling handlers to run CGIs without worrying about low-level pipe setup.
+
+*/
+
 
 // High-level convenience overload: build argv/envp and delegate
 bool CgiProcess::spawn(const CgiSpec &spec,
@@ -154,6 +234,22 @@ bool CgiProcess::spawn(const CgiSpec &spec,
 	return true;
 }
 
+
+
+/* 
+
+bool CgiProcess::spawn(const std::string&, const std::string&, char*const*, char*const*, int timeout_ms)
+
+Lower-level spawn variant with explicit argv/envp. 
+Similar setup to the high-level version, but allows precise control of the command and environment. 
+It also establishes _deadline for timeout enforcement. 
+This function underpins flexibility: more advanced handlers or alternative interpreters 
+can supply their own arguments. 
+Timeout tracking integrates with the event loop, ensuring runaway CGIs don’t hang the server.
+
+
+*/
+
 // Low-level spawn: do the actual fork/exec (stub for now; returns false)
 bool CgiProcess::spawn(const std::string &bin,
 					   const std::string &script,
@@ -242,6 +338,18 @@ bool CgiProcess::spawn(const std::string &bin,
 	return true;
 }
 
+
+/* 
+
+void CgiProcess::closeIn() / closeOut() / closeBoth()
+
+Close parent ends of CGI pipes using xclose. These are used when the server no longer needs to 
+write to CGI stdin (after sending request body) or read from stdout (after response completed). 
+Encapsulation provides safe repeated calls and simplifies cleanup. 
+It prevents dangling FDs from lingering in the event loop.
+
+*/
+
 void CgiProcess::closeIn()
 {
 	(void)xclose(_in);
@@ -255,6 +363,21 @@ void CgiProcess::closeBoth()
 	closeIn();
 	closeOut();
 }
+
+
+
+/* 
+
+
+int CgiProcess::waitNonBlocking(int *raw_status)
+
+Checks CGI child process status with waitpid(..., WNOHANG). 
+Returns 0 if still running, -1 on error, or exit/signal code when finished. 
+Also closes descriptors and resets _pid after reaping. This allows the server to poll whether the CGI has finished without blocking. 
+Returning conventional exit codes simplifies debugging and HTTP response logic 
+(like surfacing 500 errors on crashes).
+
+*/
 
 int CgiProcess::waitNonBlocking(int *raw_status)
 {
@@ -292,6 +415,19 @@ int CgiProcess::waitNonBlocking(int *raw_status)
 	closeBoth();
 	return code > 0 ? code : 1; // >0 means finished; return a positive number
 }
+
+/* 
+
+
+void CgiProcess::terminate()
+
+Safely tears down the child. First tries waitNonBlocking; 
+if still running, sends SIGKILL, then reaps with waitpid. 
+Finally closes descriptors and resets _pid. Ensures no zombie children remain and no dangling pipe endpoints survive. 
+This is the failsafe used on timeouts, errors, or handler destruction. 
+It’s critical for resource hygiene and stability in a multi-client environment.
+
+*/
 
 void CgiProcess::terminate()
 {

@@ -149,7 +149,7 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			parse = "PUT / HTTP/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("Abc123\n", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_FORBIDDEN);
 			std::remove(file);
 		}
@@ -174,7 +174,7 @@ TEST_CASE("PUT_HANDLER", "[handler][put]")
 			std::string parse;
 			parse = "PUT / HTTP/1.1\r\nContent-Length: 7\r\n\r\n";
 			req.parse(parse.c_str(), parse.length());
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_FORBIDDEN);
 			std::remove(bodyFile);
 			std::remove(file);
@@ -357,7 +357,7 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			"\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("xXNEWXx", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_INV_MEDIA);
 			// Carefull! The order of theese will depend on the order of the extended.conf Mime types
 			REQUIRE(res.headers.get(HDR_ACCEPT_PATCH) == "application/vnd.webserv.append, application/vnd.webserv.overwrite");
@@ -386,7 +386,7 @@ TEST_CASE("PATCH HANDLER", "[handler][patch]")
 			"\r\n";
 			req.parse(parse.c_str(), parse.length());
 			req.appendBody("xXNEWXx", 7);
-			REQUIRE(pat.handle(req, res, ctx) == false);
+			REQUIRE(pat.handle(req, res, ctx) == true);
 			REQUIRE(res.getStatusCode() == HTTP_INV_MEDIA);	
 			checkFileContent(3, file, "OLD");
 			std::remove(file);

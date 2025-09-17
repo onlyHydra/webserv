@@ -353,7 +353,7 @@ static bool fallback404(HttpResponse &res)
 {
 	res.clearBody();
 	res.setBody(FALLBACK_404);
-	return (false);
+	return (true);
 }
 
 /**
@@ -439,7 +439,7 @@ static bool serveErrorPage(int code,
     cl << static_cast<unsigned long>(file.size());
     res.headers.set(HDR_CONTENT_LENGTH, cl.str());
     res.bodyLength = file.size();
-    return false;
+    return true;
 }
 
 // ---------------- constructors (linker needed these) ----------------
@@ -623,6 +623,6 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
 	res.setStatus(HTTP_BAD_REQUEST);
 	res.clearBody();
 	res.headers.set(HDR_CONTENT_TYPE, "text/plain");
-	return (false);
+	return (true);
 	
 }

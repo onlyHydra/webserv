@@ -29,7 +29,7 @@ bool	createFailResponse(HttpResponse &res, int code)
 	res.headers.set(HDR_CONTENT_TYPE, "text/plain");
 	res.headers.set(HDR_CONTENT_LENGTH, "0");
 	res.bodyLength = 0;
-	return (false);
+	return (true);
 }
 
 /**
