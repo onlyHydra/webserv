@@ -59,8 +59,10 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg,
 	ctx.cgi_streamer = cgi_streamer;
 
 	// ---- Debug: log the chosen route (avoid fallthrough warnings) ----
+	#if defined(DEBUG)
 	fprintf(stderr, "[ROUTE] kind=%d path=%s\n",
 			(int)decision.kind, decision.rel_path.c_str());
+	#endif
 
 	// ---- Pick the handler once ----
 	Handler *h = 0;
