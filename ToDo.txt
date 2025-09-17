@@ -1,0 +1,26 @@
+On a new Connection:
+- If it comes with a Cookie && that Cookie is a known session ID
+	Continue the old ClientConnection
+else
+	Make a new ClientConnection
+
+Making new ClientConnection:
+- Generate a session specific cookie (Use data and timestamp to create unique Cookie / session ID)
+- Register this Cookie in the process checking Creation of ClientConnections
+
+Sending a Response:
+- Set the "Set-Cookie Header to the Cookie"
+
+Continuing a ClientConnection:
+
+When Request parsing has finished reading Headers
+Check for Cookie Header
+If present, and valid
+-> Get old Session data, assign it to ClientConnection
+else
+-> Make new Session, assign it to ClientConnection
+Always set the Responses Set-Cookie to that new Session ID / Cookie
+
+Process Request
+
+Each ClientConnection gets a session asigned 
