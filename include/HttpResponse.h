@@ -12,6 +12,7 @@ Date: 8/10/2025
 #include <vector>
 #include <ostream>
 #include "Headers.h"
+#include "HttpRequest.h"
 #include "CookieJar.h"
 
 class HttpResponse {

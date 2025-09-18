@@ -44,7 +44,7 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 	  server(s),
 	  io(fd, 64 * 1024),
 	  req(),
-	  res(&req.cookies),
+	  res(req),
 	  body(0),
 	  cgi(req, res),
 	  dl(),
@@ -1316,7 +1316,7 @@ void ClientConnection::finishWriteOrNext()
 	plan = RoutePlan();
 	ctx->reset();
 	req = HttpRequest();
-	res = HttpResponse(&req.cookies);
+	res = HttpResponse(req);
 	route_selected = false;
 
 	fixed_body_target_ = (std::size_t)-1; // <— reset here too
