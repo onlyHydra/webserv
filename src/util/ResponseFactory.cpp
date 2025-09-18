@@ -89,7 +89,7 @@ static void addCommonHeaders(HttpResponse &r, bool close)
 
 HttpResponse ResponseFactory::makeError(int code,const std::string & reasons, bool close, const std::string& bodyText)
 {
-    HttpResponse r(NULL);
+    HttpResponse r;
     r.status = code;
     r.reason = reasons.empty() ? reasonFor(code) : reasons;
     std::string text = bodyText.empty()
@@ -109,7 +109,7 @@ HttpResponse ResponseFactory::makeError(int code,const std::string & reasons, bo
 
 HttpResponse ResponseFactory::makeText(int code,const std::string& text,const std::string & reasons,bool close)
 {
-    HttpResponse r(NULL);
+    HttpResponse r;
     r.status = code;
     r.reason = reasons.empty() ? reasonFor(code) : reasons;
     r.body.assign(text.begin(), text.end());
@@ -181,7 +181,7 @@ HttpResponse ResponseFactory::makeErrorOrPage(const RequestContext &ctx,
                                               bool close,
                                               const std::string &fallbackBody)
 {
-    HttpResponse r(NULL);
+    HttpResponse r;
     r.setStatus(code, reason);
     addCommonHeaders(r, close);
     r.headers.set("Content-Type", "text/plain; charset=utf-8");

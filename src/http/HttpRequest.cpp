@@ -6,6 +6,7 @@ date: 8/10/2025
 ------------------------------------------ */
 
 #include "HttpRequest.h"
+#include "HEADER_ENTRIES.h"
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -71,6 +72,28 @@ bool isValueValid(const std::string &in)
 {
 	(void)in;
 	return (true);
+}
+
+/**
+ * @brief Stores the key-value pair in Header or CookieJar
+ * @param head Header for storage and limits
+ * @param cok CookieJar for storing cookies inside
+ * @param key Key of the pair to store
+ * @param value Value of the pair to store
+ * @returns 400 HTTP_BAD_REQUEST if Syntax Error in string
+ * @returns 431 HTTP_HEADER_TOO_BIG if setting would exceed Header Limits
+ * @returns 200 HTTP_OK if nominal
+ */
+int applyHeader(Headers &head, CookieJar &cok, const std::string &key, const std::string &value)
+{
+	if (key != HDR_COOKIE)
+	{
+		if (head.set(key, value))
+			return (HTTP_OK);
+		else
+			return (HTTP_HEADER_TOO_BIG);
+	}
+	return (cok.set(head, value));
 }
 
 HttpRequest::HttpRequest()
@@ -177,6 +200,7 @@ int HttpRequest::handleLineHeader(const std::string &in)
 	std::string key;
 	std::string value;
 
+	// Check if empty line -> End of Headers
 	if (in == "\r\n")
 	{
 		if (this->method == "POST" || this->method == "PUT" || this->method == "PATCH")
@@ -185,6 +209,7 @@ int HttpRequest::handleLineHeader(const std::string &in)
 			this->state = OVER;
 		return (0);
 	}
+	// Find key
 	pos = in.find(':', i);
 	if (pos == (size_t)-1)
 		return (HTTP_BAD_REQUEST);
@@ -194,6 +219,7 @@ int HttpRequest::handleLineHeader(const std::string &in)
 	i = pos + 1;
 	while (in[i] == ' ')
 		i++;
+	// Find value
 	pos = in.find("\r\n", i);
 	if (pos == (size_t)-1)
 		return (HTTP_BAD_REQUEST);
@@ -201,11 +227,14 @@ int HttpRequest::handleLineHeader(const std::string &in)
 	if (!isValueValid(value))
 		return (HTTP_BAD_REQUEST);
 	i = pos + 2;
+	// Redundant end of string check
 	if (in[i])
 		return (HTTP_BAD_REQUEST);
-	if (!this->headers.set(key, value))
-		return (HTTP_HEADER_TOO_BIG);
-	if (key == "Content-Length" && method != "GET")
+	// Put Header either into Header or in CookieJar (fails if too big)
+	int status = applyHeader(this->headers, this->cookies, key, value);
+	if (status != HTTP_OK)
+		return (status);
+	if (key == HDR_CONTENT_LENGTH && method != "GET")
 	{
 		contLength = Atoi::atoiHttpReq(value.c_str(), atoiError);
 		if (atoiError)
@@ -219,7 +248,7 @@ int HttpRequest::handleLineBody(const std::string &in)
 {
 	if (this->method != "POST" && this->method != "PUT" && this->method != "PATCH")
 		return (HTTP_BAD_REQUEST);
-	if (!this->headers.keyExists("Content-Length"))
+	if (!this->headers.keyExists(HDR_CONTENT_LENGTH))
 		return HTTP_LENGTH_REQUIRED;
 	if (in.size() + this->body.size() > this->bodyLength)
 		return (HTTP_BAD_REQUEST);

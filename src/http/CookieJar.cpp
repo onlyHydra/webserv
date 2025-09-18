@@ -7,6 +7,7 @@ date: 11/08/2025
 
 #include "CookieJar.h"
 #include "Headers.h"
+#include "HTTPCODES.h"
 
 using namespace std;
 
@@ -29,7 +30,9 @@ void CookieJar::setCookieHeaders(
 	(void)httpOnly;
 	(void)secure;
 	(void)sameSite;
-	this->set(key, value);
+	(void)key;
+	(void)value;
+	// this->set(key, value);
 }
 
 void CookieJar::parseFrom(const Headers &target)
@@ -38,13 +41,89 @@ void CookieJar::parseFrom(const Headers &target)
 	map<string, string, CiLess>::const_iterator end;
 
 	end = target.getEnd();
-	for (it = target.getBegin(); it != end; it++)
-		this->set(it->first, it->second);
+	// for (it = target.getBegin(); it != end; it++)
+	// 	this->set(it->first, it->second);
 }
 
-void CookieJar::set(string key, string value)
+/**
+ * @brief Get a key-value pair from the source string
+ * @param source Source string to remove substrings from
+ * @param key String that gets set to Key from source string
+ * @param value String that gets set to Value from source string
+ * @returns 0 or SP_STUFF_LEFT if more pairs may be left in string (string not empty)
+ * @returns 1 or SP_END_REACH if it found one last valid pair and then reached the end of string
+ * @returns 2 or SP_ERROR if Syntax Error
+ * 
+ * Goes over the source string once, removing values from the start
+ * So: 
+ * Function called on ("abc=def", "", "")
+ * Function ends on ("", "abc", "def")
+ * Syntax:
+ * Required: [key] [=] [value]
+ * optional: [; ] [more key-value pairs]
+ */
+enum STRPOS makeCookiePairs(std::string &source, std::string &key, std::string &value)
 {
-	this->cookies[key] = value;
+	key = "";
+	value = "";
+	if (source.empty())
+		return (SP_END_REACH);
+
+	// Get Key
+	size_t pos = 0;
+	pos = source.find('=', 0);
+	if (pos == std::string::npos)
+		return (SP_ERROR);
+	key = source.substr(0, pos);
+	source = source.substr(pos + 1);
+
+	// Get value
+	pos = 0;
+	while (source[pos] && source[pos] != ';')
+		pos++;
+
+	// Reached end of string -> whole string is value
+	if (!source[pos])
+	{
+		value = source;
+		source = "";
+		return (SP_END_REACH);
+	}
+
+	// Reached semicolon -> everything before is value
+	value = source.substr(0, pos);
+
+	// Skip to next key
+	pos++;
+	while (source[pos] && source[pos] == ' ')
+		pos++;
+	source = source.substr(pos);
+	return (SP_STUFF_LEFT);
+}
+
+/**
+ * @brief Builds the CookieJars content from the given String
+ * @param source Source string, that holds key-value pairs as "key=value; " repeating
+ * @returns 400 HTTP_BAD_REQUEST if Syntax Error in string
+ * @returns 431 HTTP_HEADER_TOO_BIG if setting would exceed Header Limits
+ * @returns 200 HTTP_OK if nominal
+ */
+int	CookieJar::set(Headers &head, const std::string &source)
+{
+	std::string copy = source;
+	std::string key;
+	std::string value;
+	enum STRPOS state = SP_STUFF_LEFT;
+	while (state == SP_STUFF_LEFT)
+	{
+		state = makeCookiePairs(copy, key, value);
+		if (state == SP_ERROR)
+			return (HTTP_BAD_REQUEST);
+		if (!head.phantomSet(key, value))
+			return (HTTP_HEADER_TOO_BIG);
+		this->cookies[key] = value;
+	}
+	return (HTTP_OK);
 }
 
 void CookieJar::erase(const string &key)

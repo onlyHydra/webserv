@@ -15,6 +15,13 @@ date: 11/08/2025
 
 using namespace std;
 
+enum STRPOS
+{
+	SP_STUFF_LEFT,
+	SP_END_REACH,
+	SP_ERROR
+};
+
 /**
  * A Class representing a Cookie
  * -------------------------------------
@@ -35,22 +42,26 @@ class CookieJar
 		 */
 		~CookieJar();
 		/**
+		 * UNUSED
 		 * ?
 		 * PLACEHOLDER / MISSING FUNCTION
 		 * NEEDS TO BE IMPLEMENTED LATER
 		 */
 		void	setCookieHeaders(Headers &h, string name, string value, string path, int maxAge, bool httpOnly, bool secure, string sameSite);
 		/**
+		 * UNUSED
 		 * Merges Header data into CookieJar data
 		 * @param target: Target Header to use as source
 		 */
 		void	parseFrom(const Headers &target);
 		/**
-		 * Sets value of given key or adds a new pair
-		 * @param key: Key by which to identify the field
-		 * @param value: New value to set the keys value to
+		 * @brief Builds the CookieJars content from the given String
+		 * @param source Source string, that holds key-value pairs as "key=value; " repeating
+		 * @returns 400 HTTP_BAD_REQUEST if Syntax Error in string
+		 * @returns 431 HTTP_HEADER_TOO_BIG if setting would exceed Header Limits
+		 * @returns 200 HTTP_OK if nominal
 		 */
-		void	set(string name, string value);
+		int	set(Headers &head, const std::string &value);
 		/**
 		 * Removes key from CookieJar
 		 * @param key: Key to remove

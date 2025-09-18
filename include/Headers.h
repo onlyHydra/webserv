@@ -31,6 +31,22 @@ class Headers
 		~Headers();
 
 		/**
+		 * @brief Simulates setting a new pair, without actually setting it
+		 * @param key: Key by which to identify the field
+		 * @param value: New value to set the keys value to
+		 * @returns true if operation suceeded
+		 * @returns false if operation would exceeded HEADER_BYTE_LIMIT
+		 * @returns false if operation would exceed HEADER_ENTRY_LIMIT
+		 * 
+		 * This is for checking and registering if the new key could be added
+		 * without actually adding it.
+		 * This is used in the CookieJar, because it should in theory also be in the Header
+		 * so the trackign of the amount of resouces is done in the Header, while
+		 * we store the actual Cookies in side the CookieJar
+		 */
+		bool phantomSet(const std::string &key, const std::string &value);
+
+		/**
 		 * Sets value of given key or adds a new pair
 		 * Operation stops if total with it would exceed HEADER_BYTE_LIMIT
 		 * @param key: Key by which to identify the field
@@ -104,12 +120,25 @@ class Headers
 		bool isEmpty() const;
 
 		/**
+		 * @returns Amount of Bytes the Header and Cookies currently have
+		 */
+
+		std::size_t getByteSize() const;
+		/**
 		 * @returns Amount of Bytes the Header currently has
 		 */
-		std::size_t getByteSize() const;
+
+		size_t getRealByteSize(void) const;
+
+		/**
+		 * @returns Amount of Entries in Header and Cookies
+		 */
+		size_t getEntryCount(void) const;
 
 	private:
 		std::map<std::string, std::string, CiLess> map;
+		std::size_t realByteSize;
+		std::size_t entryCount;
 		std::size_t byteSize;
 };
 

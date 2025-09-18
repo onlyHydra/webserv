@@ -7,33 +7,46 @@ Date: 11/08/2025
 
 #include "Headers.h"
 
-Headers::Headers() : map(), byteSize(0)
+Headers::Headers() : map(), realByteSize(0), entryCount(0), byteSize(0)
 {
 }
 
 Headers::~Headers()
 {
-	this->byteSize = 0;
 	this->map.clear();
+}
+
+bool Headers::phantomSet(const std::string &key, const std::string &value)
+{
+	if (entryCount + 1 > HEADER_ENTRY_LIMIT)
+		return (false);
+	if (this->byteSize + key.size() + value.size() > HEADER_BYTE_LIMIT)
+			return (false);
+	this->byteSize += key.size();
+	this->byteSize += value.size();
+	return (true);
 }
 
 bool Headers::set(std::string key, std::string value)
 {
-	if (this->getLength() + 1 > HEADER_ENTRY_LIMIT)
+	if (entryCount + 1 > HEADER_ENTRY_LIMIT)
 		return (false);
 	if (this->keyExists(key))
 	{
 		if (this->byteSize + (value.size() - this->get(key).size()) > HEADER_BYTE_LIMIT)
 			return (false);
+		this->realByteSize -= this->get(key).size();
 		this->byteSize -= this->get(key).size();
 	}
 	else
 	{
 		if (this->byteSize + key.size() + value.size() > HEADER_BYTE_LIMIT)
 			return (false);
+		this->realByteSize += key.size();
 		this->byteSize += key.size();
 	}
-	this->byteSize += value.size();
+	this->realByteSize += value.size();
+	this->byteSize += key.size();
 	this->map[key] = value;
 	return (true);
 }
@@ -52,6 +65,8 @@ bool Headers::mergeFrom(const Headers &src)
 
 void Headers::erase(const std::string &key)
 {
+	if (!keyExists(key))
+		return ;
 	this->byteSize -= (key.size() + get(key).size());
 	this->map.erase(key);
 }
@@ -60,6 +75,8 @@ void Headers::clear(void)
 {
 	this->map.clear();
 	this->byteSize = 0;
+	this->realByteSize = 0;
+	this->entryCount = 0;
 }
 
 std::map<std::string, std::string, CiLess>::const_iterator Headers::getBegin(void) const
@@ -129,6 +146,17 @@ size_t Headers::getByteSize(void) const
 {
 	return (this->byteSize);
 }
+
+size_t Headers::getRealByteSize(void) const
+{
+	return (this->realByteSize);
+}
+
+size_t Headers::getEntryCount(void) const
+{
+	return (this->entryCount);
+}
+
 
 std::ostream &operator<<(std::ostream &out, const Headers &target)
 {

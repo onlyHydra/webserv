@@ -32,7 +32,8 @@ public:
 		int               status;         // e.g. 200
 		std::string       reason;         // e.g. "OK"
 
-		HttpResponse(CookieJar *cookies);
+		HttpResponse(void);
+		HttpResponse(HttpRequest &req);
 		~HttpResponse();
 
 		// Helpers
