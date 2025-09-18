@@ -83,8 +83,8 @@ namespace
 
 // --- HttpResponse implementation -------------------------------------------
 
-HttpResponse::HttpResponse()
-	: http_version("HTTP/1.1"), session_id(""), bodyLength(0), body(), headers(), cookies(), status(200), reason("OK")
+HttpResponse::HttpResponse(CookieJar *cookies)
+	: http_version("HTTP/1.1"), session_id(""), bodyLength(0), body(), headers(), cookies(cookies), status(200), reason("OK")
 {
 }
 

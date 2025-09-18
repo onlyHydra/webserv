@@ -80,7 +80,6 @@ class HttpRequest
 		string session_id;
 		size_t	bodyLength;
 		Headers headers;
-		CookieJar cookies;
 		vector<char> body;
 		
 
@@ -162,6 +161,7 @@ class HttpRequest
 		int	handleLine(const std::string &in);
 
 	public:
+		CookieJar cookies;
 		HttpRequest();
 
 		~HttpRequest();

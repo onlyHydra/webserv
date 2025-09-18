@@ -26,13 +26,13 @@ public:
 
 		// Headers & cookies
 		Headers           headers;
-		CookieJar         cookies;
+		CookieJar         *cookies;
 
 		// Legacy names for compatibility
 		int               status;         // e.g. 200
 		std::string       reason;         // e.g. "OK"
 
-		HttpResponse();
+		HttpResponse(CookieJar *cookies);
 		~HttpResponse();
 
 		// Helpers
