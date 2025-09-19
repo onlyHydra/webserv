@@ -11,7 +11,7 @@ date: 11/08/2025
 
 using namespace std;
 
-CookieJar::CookieJar()
+CookieJar::CookieJar(): cookies()
 {
 }
 
@@ -117,8 +117,15 @@ int	CookieJar::set(Headers &head, const std::string &source)
 	while (state == SP_STUFF_LEFT)
 	{
 		state = makeCookiePairs(copy, key, value);
+		// If encountered error
 		if (state == SP_ERROR)
 			return (HTTP_BAD_REQUEST);
+			
+		// If End reached and no new pair
+		if (key.empty() && value.empty())
+			break;
+
+		// If Content, no error and valid pair, set that pair
 		if (!head.phantomSet(key, value))
 			return (HTTP_HEADER_TOO_BIG);
 		this->cookies[key] = value;
