@@ -179,6 +179,9 @@ int CgiHandler::buildEnv(const HttpRequest &req,
 			remote.erase(remote.size() - 1);
 	}
 
+	// --- HTTP_COOKIE ---
+	std::string cookie_string = req.cookies.prepareForCgi();
+
 	// --- SCRIPT_NAME / DOCUMENT_ROOT / SCRIPT_FILENAME ---
 	const std::string script_name = req.getPath(); // already a path like "/cgi/foo.php"
 
@@ -210,6 +213,8 @@ int CgiHandler::buildEnv(const HttpRequest &req,
 	envv.push_back(std::string("REMOTE_ADDR=") + remote);
 	envv.push_back(std::string("DOCUMENT_ROOT=") + docroot);
 	envv.push_back(std::string("SCRIPT_FILENAME=") + script_filename);
+	if (!cookie_string.empty())
+		envv.push_back(std::string("HTTP_COOKIE=") + cookie_string);
 
 	// For php-cgi compatibility; harmless for others.
 	envv.push_back("REDIRECT_STATUS=200");

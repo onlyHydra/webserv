@@ -162,6 +162,33 @@ std::string CookieJar::serialize(void) const
 	return (out);
 }
 
+#include <iostream>
+
+std::string CookieJar::prepareForCgi(void) const
+{
+	std::string res;
+	map<string, string, CiLess>::const_iterator start;
+	map<string, string, CiLess>::const_iterator end;
+
+	if (isEmpty())
+		return ("");
+	start = getBegin();
+	end = getEnd();
+	for (map<string, string, CiLess>::const_iterator it = start;
+		it != end; it++)
+	{
+		// Add semicolon AFTER every pair, except the last one
+		if (it != start)
+			res += "; ";
+		// Add the content
+		res += it->first;
+		res += "=";
+		res += it->second;
+	}
+	std::cout << "Prepared: " << res << std::endl;
+	return (res);
+}
+
 map<string, string, CiLess>::const_iterator CookieJar::getBegin(void) const
 {
 	return (this->cookies.begin());

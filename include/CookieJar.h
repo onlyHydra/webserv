@@ -100,6 +100,12 @@ class CookieJar
 		 */
 		std::string serialize(void) const;
 
+
+		/**
+		 * Prepares the Cookies to be given into CGI enviroment as Enviroment variable
+		 */
+		std::string prepareForCgi(void) const;
+
 		/**
 		 * @returns Constant Iterator to beginning of CookieJar
 		 */
