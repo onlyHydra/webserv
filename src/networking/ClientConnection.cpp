@@ -834,66 +834,6 @@ This guarantees no request can hang the connection, satisfying the project’s
 
 bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
 
-static const unsigned long long READ_TIMEOUT_MS = 15000;
-
-
-/* 
-
-ASCII case-insensitive equality. Used for comparing header names/values where HTTP is case-insensitive 
-(e.g., "Connection", "Transfer-Encoding", "chunked", "close"). 
-Keeping it ASCII avoids locale surprises and keeps the hot path tiny and predictable. 
-You’ll see it in places deciding keep-alive, TE: chunked, or other policy toggles.
-
-*/
-
-// (same helpers as before if you still need them)
-static inline bool ci_equal(const std::string &a, const std::string &b)
-{
-	if (a.size() != b.size())
-		return false;
-	for (std::size_t i = 0; i < a.size(); ++i)
-	{
-		char ca = a[i], cb = b[i];
-		if (ca >= 'A' && ca <= 'Z')
-			ca = char(ca - 'A' + 'a');
-		if (cb >= 'A' && cb <= 'Z')
-			cb = char(cb - 'A' + 'a');
-		if (ca != cb)
-			return false;
-	}
-	return true;
-}
-
-
-/* 
-
-Strict decimal parser for Content-Length. Returns -1 if empty, 
-contains non-digits, or overflows a signed 64-bit accumulator. 
-Using this tiny parser (instead of strtoll with permissive rules) 
-gives deterministic behavior and easy input validation. 
-Callers gate body readers: if it returns a non-negative value, 
-they select the fixed-length path; otherwise they reject (411/400) 
-or fall back to other body strategies as policy allows.
-
-*/
-
-static inline long long parse_content_length(const std::string &s)
-{
-	if (s.empty())
-		return -1;
-	long long v = 0;
-	for (std::size_t i = 0; i < s.size(); ++i)
-	{
-		char c = s[i];
-		if (c < '0' || c > '9')
-			return -1;
-		v = v * 10 + (c - '0');
-		if (v < 0)
-			return -1;
-	}
-	return v;
-}
-
 
 /* 
 

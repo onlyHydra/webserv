@@ -12,7 +12,7 @@ Date: 8/27/2025
 #include "HttpResponse.h"
 
 // forward declaration to avoid include cycles
-class RequestContext;
+struct RequestContext;
 
 class ResponseFactory {
 public:
