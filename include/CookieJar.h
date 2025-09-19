@@ -12,6 +12,7 @@ date: 11/08/2025
 #include <string>
 #include "Headers.h"
 #include "CiLess.h"
+#include "HEADER_ENTRIES.h"
 
 using namespace std;
 
@@ -71,6 +72,11 @@ class CookieJar
 		 * Deletes all entries in CookieJar
 		 */
 		void	clear(void);
+
+		/**
+		 * Serialize for outputting
+		 */
+		std::string serialize(void) const;
 
 		/**
 		 * @returns Constant Iterator to beginning of CookieJar

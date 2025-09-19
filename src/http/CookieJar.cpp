@@ -154,6 +154,23 @@ void CookieJar::clear(void)
 	this->cookies.clear();
 }
 
+std::string CookieJar::serialize(void) const
+{
+	std::map<std::string, std::string, CiLess>::const_iterator it;
+	std::string out = "";
+
+	for (it = this->cookies.begin(); it != this->cookies.end(); it++)
+	{
+		out.append(HDR_SET_COOKIE);
+		out.append(": ");
+		out.append(it->first);
+		out.append("=");
+		out.append(it->second);
+		out.append("\r\n");
+	}
+	return (out);
+}
+
 map<string, string, CiLess>::const_iterator CookieJar::getBegin(void) const
 {
 	return (this->cookies.begin());
@@ -207,6 +224,6 @@ string CookieJar::get(string key)
 
 ostream &operator<<(ostream &out, const CookieJar &target)
 {
-	target.show(out);
+	out << target.serialize();
 	return (out);
 }

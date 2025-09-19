@@ -156,7 +156,10 @@ void HttpResponse::ensureDefaultHeaders()
 std::ostream& operator<<(std::ostream& out, const HttpResponse& r)
 {
     out << r.http_version << " " << r.status << " " << r.reason << "\r\n";
+		if (r.cookies != NULL)
+		out << r.cookies->serialize();
     out << r.headers.serialize();
+	// Cookiejar
 
     if (!r.body.empty())
         out.write(&r.body[0], std::streamsize(r.body.size())); // ✅ write exact bytes

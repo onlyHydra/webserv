@@ -139,7 +139,7 @@ std::string Headers::serialize(void) const
 		out.append(it->second);
 		out.append("\r\n");
 	}
-	out += "\r\n";
+	out.append("\r\n");
 	return (out);
 }
 
