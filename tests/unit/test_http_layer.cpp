@@ -372,6 +372,15 @@ TEST_CASE("CookieJar Tests", "[http][cookie]")
 		REQUIRE(cok.set(head, "SID=lel, who gives a shit; 456=lol") == HTTP_OK);
 		REQUIRE(cok.getLength() == oldLength + 2);
 	}
+	SECTION("Cookies -> Enviroment")
+	{
+		HttpRequest req;
+		HttpResponse res(req);
+
+		std::string parse = "POST / HTTP/1.1\r\nCookie: key=value\r\nCookie: lan=en-US\r\n";
+		req.parse(parse.c_str(), parse.size());
+		REQUIRE(res.cookies->prepareForCgi() == "key=value; lan=en-US");
+	}
 }
 
 TEST_CASE("Mixing CookieJar and Header", "[http][cookie][header]")
