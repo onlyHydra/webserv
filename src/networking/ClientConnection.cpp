@@ -615,7 +615,6 @@ bool ClientConnection::pumpCgiToSocket(std::size_t max_bytes)
 		{
 			// Ready for the next request on this keep-alive connection
 			// Reinitialize request/response to defaults
-
 			req = HttpRequest();
 			res = HttpResponse(req);
 

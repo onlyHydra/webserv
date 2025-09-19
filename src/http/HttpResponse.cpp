@@ -85,9 +85,6 @@ namespace
 
 // --- HttpResponse implementation -------------------------------------------
 
-/**
- * @warning Legacy support, you should be giving this a Request, to steal its CookieJar from
- */
 HttpResponse::HttpResponse(void)
 	: http_version("HTTP/1.1"), session_id(""), bodyLength(0), body(), headers(), cookies(NULL), status(200), reason("OK")
 {

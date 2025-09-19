@@ -33,7 +33,14 @@ public:
 		int               status;         // e.g. 200
 		std::string       reason;         // e.g. "OK"
 
-		HttpResponse(void);
+		/**
+		 * @warning Legacy support, you should realistically be giving 
+		 * this a Request, to steal its CookieJar from
+		 */
+		HttpResponse();
+		/**
+		 * Use this Constructor for Responses that may need Cookies
+		 */
 		HttpResponse(HttpRequest &req);
 		~HttpResponse();
 

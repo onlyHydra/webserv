@@ -32,17 +32,16 @@ void CookieJar::setCookieHeaders(
 	(void)sameSite;
 	(void)key;
 	(void)value;
-	// this->set(key, value);
 }
 
-void CookieJar::parseFrom(const Headers &target)
+void CookieJar::parseFrom(Headers &target)
 {
-	map<string, string, CiLess>::const_iterator it;
-	map<string, string, CiLess>::const_iterator end;
+	map<string, string, CiLess>::iterator it;
+	map<string, string, CiLess>::iterator end;
 
 	end = target.getEnd();
-	// for (it = target.getBegin(); it != end; it++)
-	// 	this->set(it->first, it->second);
+	for (it = target.getBegin(); it != end; it++)
+		this->set(target, std::string(it->first) + "=" + std::string(it->second));
 }
 
 /**
@@ -101,13 +100,6 @@ enum STRPOS makeCookiePairs(std::string &source, std::string &key, std::string &
 	return (SP_STUFF_LEFT);
 }
 
-/**
- * @brief Builds the CookieJars content from the given String
- * @param source Source string, that holds key-value pairs as "key=value; " repeating
- * @returns 400 HTTP_BAD_REQUEST if Syntax Error in string
- * @returns 431 HTTP_HEADER_TOO_BIG if setting would exceed Header Limits
- * @returns 200 HTTP_OK if nominal
- */
 int	CookieJar::set(Headers &head, const std::string &source)
 {
 	std::string copy = source;
@@ -121,21 +113,20 @@ int	CookieJar::set(Headers &head, const std::string &source)
 		if (state == SP_ERROR)
 			return (HTTP_BAD_REQUEST);
 			
-		// If End reached and no new pair
+		// If No pair could be made (usually when end is reached)
 		if (key.empty() && value.empty())
 			break;
 
 		// If Content, no error and valid pair, set that pair
-		// If key already exists in CookieJar, try to replace its value
 		if (this->keyExists(key))
 		{
+			// If key already exists in CookieJar, try to replace its value
 			if (!head.phantomReSet(this->get(key), value))
 				return (HTTP_HEADER_TOO_BIG);
 		}
-
-		// If key is new in CookieJar, add it wholly
 		else
 		{
+			// If key is new in CookieJar, "add" it wholly
 			if (!head.phantomSet(key, value))
 				return (HTTP_HEADER_TOO_BIG);
 		}
@@ -202,12 +193,7 @@ void CookieJar::show(ostream &out) const
 
 int CookieJar::getLength(void) const
 {
-	int count = 0;
-	map<string, string, CiLess>::const_iterator it;
-
-	for (it = this->getBegin(); it != this->getEnd(); it++)
-		count++;
-	return (count);
+	return (this->cookies.size());
 }
 
 bool CookieJar::isEmpty(void) const

@@ -26,7 +26,6 @@ bool Headers::phantomReSet(const std::string &oldValue, const std::string &newVa
 	return (true);
 }
 
-// ERR only takes new varaibles
 bool Headers::phantomSet(const std::string &key, const std::string &value)
 {
 	// If key doesnt exist, account for keys length and values length
@@ -70,9 +69,9 @@ bool Headers::set(std::string key, std::string value)
 	return (true);
 }
 
-bool Headers::mergeFrom(const Headers &src)
+bool Headers::mergeFrom(Headers &src)
 {
-	std::map<std::string, std::string, CiLess>::const_iterator it;
+	std::map<std::string, std::string, CiLess>::iterator it;
 	bool okay = true;
 
 	for (it = src.getBegin(); okay && it != src.getEnd(); it++)
@@ -96,14 +95,15 @@ void Headers::clear(void)
 	this->byteSize = 0;
 	this->realByteSize = 0;
 	this->entryCount = 0;
+	this->realEntryCount = 0;
 }
 
-std::map<std::string, std::string, CiLess>::const_iterator Headers::getBegin(void) const
+std::map<std::string, std::string, CiLess>::iterator Headers::getBegin(void)
 {
 	return (this->map.begin());
 }
 
-std::map<std::string, std::string, CiLess>::const_iterator Headers::getEnd(void) const
+std::map<std::string, std::string, CiLess>::iterator Headers::getEnd(void)
 {
 	return (this->map.end());
 }

@@ -31,16 +31,17 @@ class Headers
 		~Headers();
 
 		/**
-		 * @brief Simulates setting a new pair, without actually doing so
-		 * @param key: Key by which to identify the field
-		 * @param value: New value to set the keys value to
+		 * @brief Simulates setting a new entry, without actually doing so
+		 * @param key Key by which to identify the entry
+		 * @param value Value for that entry
 		 * @returns true if operation suceeded
 		 * @returns false if operation would exceeded HEADER_BYTE_LIMIT
 		 * @returns false if operation would exceed HEADER_ENTRY_LIMIT
-		 * @warning ONLY DO THIS, IF THE KEY IS NEW!
+		 * @warning ONLY DO THIS, IF THE KEY IS NEW! (use keyExists())
 		 * 
 		 * This is for checking and registering if the new key could be added
-		 * without actually adding it.
+		 * without actually adding it. 
+		 * However, we do (try to) change the byte and entry count.
 		 * This is used in the CookieJar, because it should in theory also be in the Header
 		 * so the tracking of the amount of resouces is done in the Header, while
 		 * we store the actual Cookies inside the CookieJar
@@ -48,16 +49,17 @@ class Headers
 		bool phantomSet(const std::string &key, const std::string &value);
 
 		/**
-		 * @brief Simulates replacing an existing value, without actually doing so
-		 * @param oldValue: Old value, currently stored
-		 * @param value: New value to replace the old value
+		 * @brief Simulates replacing an existing entry, without actually doing so
+		 * @param oldValue Old value, currently stored
+		 * @param value New value to replace the old value
 		 * @returns true if operation suceeded
 		 * @returns false if operation would exceeded HEADER_BYTE_LIMIT
 		 * @returns false if operation would exceed HEADER_ENTRY_LIMIT
-		 * @warning ONLY DO THIS, IF THE KEY ALREADY EXISTS!
+		 * @warning ONLY DO THIS, IF THE KEY ALREADY EXISTS! (use keyExists())
 		 * 
 		 * This is for checking and registering if the current value can be replaced
 		 * with the new Value, without actually replacing it
+		 * However, we do (try to) change the byte and entry count.
 		 * This is used in the CookieJar, because it should in theory also be in the Header
 		 * so the tracking of the amount of resouces is done in the Header, while
 		 * we store the actual Cookies inside the CookieJar
@@ -79,7 +81,7 @@ class Headers
 		 * Merge Header into this one
 		 * @param src: Source Header that will be added on this one
 		 */
-		bool mergeFrom(const Headers &src);
+		bool mergeFrom(Headers &src);
 
 		/**
 		 * Removes key from Header
@@ -93,14 +95,14 @@ class Headers
 		void clear();
 
 		/**
-		 * @returns Constant Iterator to beginning of Header
+		 * @returns Iterator to beginning of Header
 		 */
-		std::map<std::string, std::string, CiLess>::const_iterator getBegin() const;
+		std::map<std::string, std::string, CiLess>::iterator getBegin();
 
 		/**
-		 * @returns Constant Iterator to end of Header
+		 * @returns Iterator to end of Header
 		 */
-		std::map<std::string, std::string, CiLess>::const_iterator getEnd() const;
+		std::map<std::string, std::string, CiLess>::iterator getEnd();
 
 		/**
 		 * Returns whether key exists
