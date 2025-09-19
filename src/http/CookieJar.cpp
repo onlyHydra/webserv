@@ -126,8 +126,19 @@ int	CookieJar::set(Headers &head, const std::string &source)
 			break;
 
 		// If Content, no error and valid pair, set that pair
-		if (!head.phantomSet(key, value))
-			return (HTTP_HEADER_TOO_BIG);
+		// If key already exists in CookieJar, try to replace its value
+		if (this->keyExists(key))
+		{
+			if (!head.phantomReSet(this->get(key), value))
+				return (HTTP_HEADER_TOO_BIG);
+		}
+
+		// If key is new in CookieJar, add it wholly
+		else
+		{
+			if (!head.phantomSet(key, value))
+				return (HTTP_HEADER_TOO_BIG);
+		}
 		this->cookies[key] = value;
 	}
 	return (HTTP_OK);

@@ -10,8 +10,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#include <iostream>
-
 static void pushHeaderMaxEntries(Headers &h)
 {
 	for (int i = 0; i < HEADER_ENTRY_LIMIT - 1; ++i)
@@ -33,7 +31,20 @@ static void pushHeaderMaxBytes(Headers &h)
 	REQUIRE(h.set("1", longStr));
 }
 
-static void invalidSetAtttempt(Headers &h, const std::string &key, const std::string &value)
+static void invalidSetCookie(Headers &h, CookieJar &cok, const std::string &combo)
+{
+	size_t oldEntCount = h.getEntryCount();
+	size_t oldRealEntCount = h.getRealEntryCount();
+	size_t oldByteCount = h.getByteSize();
+	size_t oldRealByteCount = h.getRealByteSize();
+	REQUIRE(cok.set(h, combo) == HTTP_HEADER_TOO_BIG);
+	REQUIRE(h.getEntryCount() == oldEntCount);
+	REQUIRE(h.getRealEntryCount() == oldRealEntCount);
+	REQUIRE(h.getByteSize() == oldByteCount);
+	REQUIRE(h.getRealByteSize() == oldRealByteCount);
+}
+
+static void invalidSetHeader(Headers &h, const std::string &key, const std::string &value)
 {
 	size_t oldEntCount = h.getEntryCount();
 	size_t oldRealEntCount = h.getRealEntryCount();
@@ -177,10 +188,10 @@ TEST_CASE("Header tests", "[http][header]")
 		REQUIRE(h.getRealByteSize() == HEADER_BYTE_LIMIT - 4);
 
 		// Try to exceed Byte Limit
-		invalidSetAtttempt(h, "", "abcefghhiklmnop");
-		invalidSetAtttempt(h, "abcefghhiklmnop", "");
+		invalidSetHeader(h, "", "abcefghhiklmnop");
+		invalidSetHeader(h, "abcefghhiklmnop", "");
 		REQUIRE(h.set("new", "1"));
-		invalidSetAtttempt(h, "new", "12345");
+		invalidSetHeader(h, "new", "12345");
 		REQUIRE(h.get("new") == "1");
 		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT);
 	}
@@ -197,10 +208,10 @@ TEST_CASE("Header tests", "[http][header]")
 		REQUIRE(h.set("last one", ""));
 	
 		// Try to exceed Entry Limit
-		invalidSetAtttempt(h, "", "abcefghhiklmnop");
-		invalidSetAtttempt(h, "abcefghhiklmnop", "");
+		invalidSetHeader(h, "", "abcefghhiklmnop");
+		invalidSetHeader(h, "abcefghhiklmnop", "");
 		REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT);
-		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT);;
+		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT);
 	}
 }
 
@@ -360,5 +371,61 @@ TEST_CASE("CookieJar Tests", "[http][cookie]")
 		oldLength = cok.getLength();
 		REQUIRE(cok.set(head, "SID=lel, who gives a shit; 456=lol") == HTTP_OK);
 		REQUIRE(cok.getLength() == oldLength + 2);
+	}
+}
+
+TEST_CASE("Mixing CookieJar and Header", "[http][cookie][header]")
+{
+	SECTION("Testing Cookie and Header connection")
+	{
+		Headers h;
+		CookieJar cok;
+		cok.set(h, "lang=en-Us");
+		REQUIRE(h.getByteSize() == 9);
+		REQUIRE(h.getRealByteSize() == 0);
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 0);
+	}
+	SECTION("Bytesize Limit Testing")
+	{
+		Headers h;
+		CookieJar cok;
+		pushHeaderMaxBytes(h);
+		// Header now has only 4 bytes left
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 1);
+		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT - 4);
+		REQUIRE(h.getRealByteSize() == HEADER_BYTE_LIMIT - 4);
+
+		// Try to exceed Byte Limit
+		invalidSetCookie(h, cok, "ab=cefghhiklmnop");
+		REQUIRE(cok.set(h, "a=bcd") == HTTP_OK);
+		invalidSetCookie(h, cok, "b=");
+		REQUIRE(cok.get("a") == "bcd");
+		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT);
+		REQUIRE(cok.set(h, "a=") == HTTP_OK);
+		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT - 3);
+		REQUIRE(h.getEntryCount() == 2);
+		REQUIRE(h.getRealEntryCount() == 1);
+	}
+	SECTION("Entry Limit Testing")
+	{
+		Headers h;
+		CookieJar cok;
+		pushHeaderMaxEntries(h);
+		// Header now has only 1 entry left
+		REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT - 1);
+		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT - 1);
+
+		// Set last Entry
+		REQUIRE(cok.set(h, "last=valid"));
+
+		// Try to exceed Entry Limit
+		invalidSetCookie(h, cok, "ab=cefghhiklmnop");
+		REQUIRE(cok.set(h, "last=also valid") == HTTP_OK);
+		invalidSetCookie(h, cok, "b=");
+		REQUIRE(cok.get("last") == "also valid");
+		REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT);
+		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT - 1);
 	}
 }

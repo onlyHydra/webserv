@@ -31,20 +31,38 @@ class Headers
 		~Headers();
 
 		/**
-		 * @brief Simulates setting a new pair, without actually setting it
+		 * @brief Simulates setting a new pair, without actually doing so
 		 * @param key: Key by which to identify the field
 		 * @param value: New value to set the keys value to
 		 * @returns true if operation suceeded
 		 * @returns false if operation would exceeded HEADER_BYTE_LIMIT
 		 * @returns false if operation would exceed HEADER_ENTRY_LIMIT
+		 * @warning ONLY DO THIS, IF THE KEY IS NEW!
 		 * 
 		 * This is for checking and registering if the new key could be added
 		 * without actually adding it.
 		 * This is used in the CookieJar, because it should in theory also be in the Header
-		 * so the trackign of the amount of resouces is done in the Header, while
-		 * we store the actual Cookies in side the CookieJar
+		 * so the tracking of the amount of resouces is done in the Header, while
+		 * we store the actual Cookies inside the CookieJar
 		 */
 		bool phantomSet(const std::string &key, const std::string &value);
+
+		/**
+		 * @brief Simulates replacing an existing value, without actually doing so
+		 * @param oldValue: Old value, currently stored
+		 * @param value: New value to replace the old value
+		 * @returns true if operation suceeded
+		 * @returns false if operation would exceeded HEADER_BYTE_LIMIT
+		 * @returns false if operation would exceed HEADER_ENTRY_LIMIT
+		 * @warning ONLY DO THIS, IF THE KEY ALREADY EXISTS!
+		 * 
+		 * This is for checking and registering if the current value can be replaced
+		 * with the new Value, without actually replacing it
+		 * This is used in the CookieJar, because it should in theory also be in the Header
+		 * so the tracking of the amount of resouces is done in the Header, while
+		 * we store the actual Cookies inside the CookieJar
+		 */
+		bool phantomReSet(const std::string &oldValue, const std::string &newValue);
 
 		/**
 		 * Sets value of given key or adds a new pair

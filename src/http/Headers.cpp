@@ -16,15 +16,25 @@ Headers::~Headers()
 	this->map.clear();
 }
 
+bool Headers::phantomReSet(const std::string &oldValue, const std::string &newValue)
+{
+	// If Key already exists, account for the differenc of old and new value
+	int diff = (int)newValue.size() - (int)oldValue.size();
+	if (this->byteSize + diff > HEADER_BYTE_LIMIT)
+		return (false);
+	this->byteSize += diff;
+	return (true);
+}
+
 // ERR only takes new varaibles
 bool Headers::phantomSet(const std::string &key, const std::string &value)
 {
+	// If key doesnt exist, account for keys length and values length
 	if (entryCount + 1 > HEADER_ENTRY_LIMIT)
 		return (false);
 	if (this->byteSize + key.size() + value.size() > HEADER_BYTE_LIMIT)
-			return (false);
-	this->byteSize += key.size();
-	this->byteSize += value.size();
+		return (false);
+	this->byteSize += key.size() + value.size();
 	this->entryCount++;
 	return (true);
 }
