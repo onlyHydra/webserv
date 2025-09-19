@@ -31,22 +31,28 @@ bool Headers::set(std::string key, std::string value)
 {
 	if (entryCount + 1 > HEADER_ENTRY_LIMIT)
 		return (false);
+	std::size_t keySize = key.size();
+	std::size_t oldSize = this->get(key).size();
+	std::size_t newSize = value.size();
+	int diff;
 	if (this->keyExists(key))
 	{
-		if (this->byteSize + (value.size() - this->get(key).size()) > HEADER_BYTE_LIMIT)
+		// If Key already exists, account for the differenc of old and new value
+		diff = (int)newSize - (int)oldSize;
+		if (this->byteSize + diff > HEADER_BYTE_LIMIT)
 			return (false);
-		this->realByteSize -= this->get(key).size();
-		this->byteSize -= this->get(key).size();
+		this->realByteSize += diff;
+		this->byteSize += diff;
 	}
 	else
 	{
-		if (this->byteSize + key.size() + value.size() > HEADER_BYTE_LIMIT)
+		// If key doesnt exist, account for keys length and values length
+		if (this->byteSize + keySize + newSize > HEADER_BYTE_LIMIT)
 			return (false);
-		this->realByteSize += key.size();
-		this->byteSize += key.size();
+		this->realByteSize += keySize + newSize;
+		this->byteSize += keySize + newSize;
+		this->entryCount++;
 	}
-	this->realByteSize += value.size();
-	this->byteSize += key.size();
 	this->map[key] = value;
 	return (true);
 }
