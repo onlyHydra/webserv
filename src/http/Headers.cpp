@@ -7,7 +7,7 @@ Date: 11/08/2025
 
 #include "Headers.h"
 
-Headers::Headers() : map(), realByteSize(0), entryCount(0), byteSize(0)
+Headers::Headers() : map(), byteSize(0), realByteSize(0), entryCount(0), realEntryCount(0)
 {
 }
 
@@ -16,6 +16,7 @@ Headers::~Headers()
 	this->map.clear();
 }
 
+// ERR only takes new varaibles
 bool Headers::phantomSet(const std::string &key, const std::string &value)
 {
 	if (entryCount + 1 > HEADER_ENTRY_LIMIT)
@@ -24,6 +25,7 @@ bool Headers::phantomSet(const std::string &key, const std::string &value)
 			return (false);
 	this->byteSize += key.size();
 	this->byteSize += value.size();
+	this->entryCount++;
 	return (true);
 }
 
@@ -41,17 +43,18 @@ bool Headers::set(std::string key, std::string value)
 		diff = (int)newSize - (int)oldSize;
 		if (this->byteSize + diff > HEADER_BYTE_LIMIT)
 			return (false);
-		this->realByteSize += diff;
 		this->byteSize += diff;
+		this->realByteSize += diff;
 	}
 	else
 	{
 		// If key doesnt exist, account for keys length and values length
 		if (this->byteSize + keySize + newSize > HEADER_BYTE_LIMIT)
 			return (false);
-		this->realByteSize += keySize + newSize;
 		this->byteSize += keySize + newSize;
+		this->realByteSize += keySize + newSize;
 		this->entryCount++;
+		this->realEntryCount++;
 	}
 	this->map[key] = value;
 	return (true);
@@ -163,6 +166,10 @@ size_t Headers::getEntryCount(void) const
 	return (this->entryCount);
 }
 
+size_t Headers::getRealEntryCount(void) const
+{
+	return (this->realEntryCount);
+}
 
 std::ostream &operator<<(std::ostream &out, const Headers &target)
 {

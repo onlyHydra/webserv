@@ -135,11 +135,17 @@ class Headers
 		 */
 		size_t getEntryCount(void) const;
 
+		/**
+		 * @returns Amount of Entries in Header
+		 */
+		size_t getRealEntryCount(void) const;
+
 	private:
 		std::map<std::string, std::string, CiLess> map;
+		std::size_t byteSize;
 		std::size_t realByteSize;
 		std::size_t entryCount;
-		std::size_t byteSize;
+		std::size_t realEntryCount;
 };
 
 	/**

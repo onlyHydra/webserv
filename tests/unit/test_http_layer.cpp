@@ -7,8 +7,44 @@
 #include "HttpResponse.h"
 #include "HttpRequest.h"
 #include <ostream>	
+#include <unistd.h>
+#include <stdlib.h>
 
 #include <iostream>
+
+static void pushHeaderMaxEntries(Headers &h)
+{
+	for (int i = 0; i < HEADER_ENTRY_LIMIT - 1; ++i)
+	{
+		std::ostringstream oss;
+		oss << i;
+		std::string str = oss.str();
+		h.set(str, "");
+	}
+	REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT - 1);
+	REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT - 1);
+}
+
+static void pushHeaderMaxBytes(Headers &h)
+{
+	int length = HEADER_BYTE_LIMIT - 5;
+	char character = '*';
+	std::string longStr(length, character);
+	REQUIRE(h.set("1", longStr));
+}
+
+static void invalidSetAtttempt(Headers &h, const std::string &key, const std::string &value)
+{
+	size_t oldEntCount = h.getEntryCount();
+	size_t oldRealEntCount = h.getRealEntryCount();
+	size_t oldByteCount = h.getByteSize();
+	size_t oldRealByteCount = h.getRealByteSize();
+	REQUIRE(!h.set(key, value));
+	REQUIRE(h.getEntryCount() == oldEntCount);
+	REQUIRE(h.getRealEntryCount() == oldRealEntCount);
+	REQUIRE(h.getByteSize() == oldByteCount);
+	REQUIRE(h.getRealByteSize() == oldRealByteCount);
+}
 
 static void check400(Headers &h, CookieJar &cok, const std::string &input)
 {
@@ -107,7 +143,67 @@ TEST_CASE("Header tests", "[http][header]")
 		REQUIRE(test.getLength() == 3);
 		REQUIRE(test.serialize() == "Ke: 3\r\nKeY: 1\r\nKEyy: 5\r\n\r\n");
 	}
+	SECTION("Size checks")
+	{
+		Headers h;
+		// Adding existing key
+		REQUIRE(h.set("key", "1234"));
+		REQUIRE(h.getByteSize() == 7);
+		REQUIRE(h.getRealByteSize() == 7);
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 1);
+		// Adding new key longer then old one
+		REQUIRE(h.set("key", "123456789"));
+		REQUIRE(h.getByteSize() == 12);
+		REQUIRE(h.getRealByteSize() == 12);
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 1);
+		// Adding new key shorter then old one
+		REQUIRE(h.set("key", "1"));
+		REQUIRE(h.getByteSize() == 4);
+		REQUIRE(h.getRealByteSize() == 4);
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 1);
+	}
+	SECTION("Check Byte Limit")
+	{
+		// Push Header to just before its Byte Limit
+		Headers h;
+		pushHeaderMaxBytes(h);
+		// Header now has only 4 bytes left
+		REQUIRE(h.getEntryCount() == 1);
+		REQUIRE(h.getRealEntryCount() == 1);
+		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT - 4);
+		REQUIRE(h.getRealByteSize() == HEADER_BYTE_LIMIT - 4);
+
+		// Try to exceed Byte Limit
+		invalidSetAtttempt(h, "", "abcefghhiklmnop");
+		invalidSetAtttempt(h, "abcefghhiklmnop", "");
+		REQUIRE(h.set("new", "1"));
+		invalidSetAtttempt(h, "new", "12345");
+		REQUIRE(h.get("new") == "1");
+		REQUIRE(h.getByteSize() == HEADER_BYTE_LIMIT);
+	}
+	SECTION("Check Entry Limit")
+	{
+		// Push Header to just before its Entry Limit
+		Headers h;
+		pushHeaderMaxEntries(h);
+		// Header now has only 1 entry left
+		REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT - 1);
+		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT - 1);
+
+		// Set last Entry
+		REQUIRE(h.set("last one", ""));
+	
+		// Try to exceed Entry Limit
+		invalidSetAtttempt(h, "", "abcefghhiklmnop");
+		invalidSetAtttempt(h, "abcefghhiklmnop", "");
+		REQUIRE(h.getEntryCount() == HEADER_ENTRY_LIMIT);
+		REQUIRE(h.getRealEntryCount() == HEADER_ENTRY_LIMIT);;
+	}
 }
+
 TEST_CASE("CookieJar Tests", "[http][cookie]")
 {
 	SECTION("Unset Cookies")
