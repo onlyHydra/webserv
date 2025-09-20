@@ -16,43 +16,43 @@ Date: 8/10/2025
 
 class HttpResponse {
 public:
-    // Wire metadata
-    std::string       http_version;   // e.g. "HTTP/1.1"
-    std::string       session_id;
+		// Wire metadata
+		std::string       http_version;   // e.g. "HTTP/1.1"
+		std::string       session_id;
 
-    // Body bookkeeping
-    size_t            bodyLength;     // if 0, serializer should use body.size()
-    std::vector<char> body;
+		// Body bookkeeping
+		size_t            bodyLength;     // if 0, serializer should use body.size()
+		std::vector<char> body;
 
-    // Headers & cookies
-    Headers           headers;
-    CookieJar         cookies;
+		// Headers & cookies
+		Headers           headers;
+		CookieJar         cookies;
 
-    // Legacy names for compatibility
-    int               status;         // e.g. 200
-    std::string       reason;         // e.g. "OK"
+		// Legacy names for compatibility
+		int               status;         // e.g. 200
+		std::string       reason;         // e.g. "OK"
 
-    HttpResponse();
-    ~HttpResponse();
+		HttpResponse();
+		~HttpResponse();
 
-    // Helpers
-    void setStatus(int code);                       // infers reason
-    void setStatus(int code, const std::string& r); // explicit reason
-    int  getStatusCode() const;
-    const std::string& getReason() const;
+		// Helpers
+		void setStatus(int code);                       // infers reason
+		void setStatus(int code, const std::string& r); // explicit reason
+		int  getStatusCode() const;
+		const std::string& getReason() const;
 
-    void setBody(const std::string& s);
-    void clearBody();
+		void setBody(const std::string& s);
+		void clearBody();
 
-    Headers& headersRef() { return headers; }
-    const Headers& headersRef() const { return headers; }
+		Headers& headersRef() { return headers; }
+		const Headers& headersRef() const { return headers; }
 
-    // Ensures Date, Server, Content-Length, Connection defaults.
-    void ensureDefaultHeaders();
+		// Ensures Date, Server, Content-Length, Connection defaults.
+		void ensureDefaultHeaders();
 };
 
-// Debug/trace helper (does NOT print the actual body bytes)
-std::ostream& operator<<(std::ostream& out, const HttpResponse& r);
+	// Debug/trace helper (does NOT print the actual body bytes)
+	std::ostream& operator<<(std::ostream& out, const HttpResponse& r);
 
 #endif // HTTPRESPONSE_H
 

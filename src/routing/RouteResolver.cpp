@@ -35,7 +35,6 @@ const Location *RouteResolver::matchLocation(const VirtualServer &vs,
 		 it != vs.locations.end(); ++it)
 	{
 		const Location &L = *it;
-
 		if (L.regex)
 		{
 			// TODO: regex not implemented in this minimal version

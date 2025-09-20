@@ -44,6 +44,8 @@ namespace
 			return "Not Found";
 		case 405:
 			return "Method Not Allowed";
+		case 412:
+			return "Precondition Failed";
 		case 413:
 			return "Payload Too Large";
 		case 500:

@@ -41,6 +41,7 @@ struct RouteDecision
 		HK_PROXY,
 		HK_RETURN,
 		HK_PUTPATCH,
+		HK_UPLOAD, 
 		HK_ERROR
 	};
 

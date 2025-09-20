@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <signal.h>
 
 using namespace std;
 
@@ -14,9 +15,16 @@ static void on_sig(int)
         g_srv->stop();
 }
 
+static void ignore_sigpipe()
+{
+    // C++98-safe, only uses signal()
+    signal(SIGPIPE, SIG_IGN);
+}
+
 /** For now I get port from ARGV */
 int main(int argc, char** argv)
 {
+	ignore_sigpipe();  // set global handler immediately
 	try
 	{
 		const std::string &path = (argc == 2) ? argv[1] : "config/extended.conf";

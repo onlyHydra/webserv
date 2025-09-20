@@ -253,7 +253,7 @@ void Router::makeDecisionForVS(const ServerConfig &cfg,
 	if (!isMethodAllowed(L, method))
 	{
 		out.kind = RouteDecision::HK_ERROR;
-		out.status = HTTP_METHOD_FORBIDDEN;
+		out.status = 405;
 		return;
 	}
 
@@ -261,7 +261,7 @@ void Router::makeDecisionForVS(const ServerConfig &cfg,
 	if ((method == "PUT" || method == "PATCH") && !isPutPatchAllowed(L, method))
 	{
 		out.kind = RouteDecision::HK_ERROR;
-		out.status = HTTP_METHOD_FORBIDDEN;
+		out.status = 405;
 		return;
 	}
 	if ((method == "PUT" || method == "PATCH") && isPutPatchAllowed(L, method))
@@ -270,6 +270,14 @@ void Router::makeDecisionForVS(const ServerConfig &cfg,
 		out.status = HTTP_OK;
 		return;
 	}
+
+	 // Uploads (multipart/form-data handled by UploadHandler)
+    if (method == "POST" && L && !L->upload_store.empty())
+    {
+        out.kind = RouteDecision::HK_UPLOAD;
+        out.status = HTTP_OK;
+        return;
+    }
 
 	// Proxy
 	if (isProxy(L))

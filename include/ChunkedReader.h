@@ -28,18 +28,28 @@ public:
 
 	// IBodyReader API
 	bool complete() const { return st_ == S_DONE; }
-	std::size_t bytes_received() const { return total_; }
+	std::size_t bytes_received() const { 
+		return total_; 
+	}
 
 	// Storage queries
-	bool        isBodyOnDisk() const { return on_disk_; }
-	std::string getBodyFilePath() const { return path_; }
-	std::size_t getBodyLength() const { return total_; }
+	bool        isBodyOnDisk() const { 
+		return on_disk_; 
+	}
+	std::string getBodyFilePath() const { 
+		return path_; 
+	}
+	std::size_t getBodyLength() const { 
+		return total_; 
+	}
 
 	// Driver-facing disk flushing (bounded, non-blocking)
 	std::size_t flush_to_disk(std::size_t max_bytes);
 
 	// Optional helpers
-	std::size_t pending_size() const { return pending_.size() - pending_off_; }
+	std::size_t pending_size() const { 
+		return pending_.size() - pending_off_; 
+	}
 	const char* pending_data() const
 	{
 		return pending_size() ? &pending_[0] + pending_off_ : 0;

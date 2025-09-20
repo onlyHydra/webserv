@@ -7,10 +7,9 @@
 #include "ServerConfig.h"
 #include "VirtualServer.h"
 #include "Router.h"
-#include "RouteResolver.h" 
+#include "RouteResolver.h"
 #include <cstdlib>
 #include <cctype>
-
 
 static std::string path_from_uri(const std::string &uri)
 {
@@ -112,7 +111,7 @@ Preflight RequestGuards::preflight(const ServerConfig &cfg,
 		if (!hasCL && !chunked)
 		{
 			pr.ok = false;
-			pr.reject_status = 411; 
+			pr.reject_status = 411;
 			pr.reject_reason = "Length Required";
 			return pr;
 		}
@@ -120,7 +119,7 @@ Preflight RequestGuards::preflight(const ServerConfig &cfg,
 		if (pr.max_body_bytes && hasCL && cl > pr.max_body_bytes)
 		{
 			pr.ok = false;
-			pr.reject_status = 413; 
+			pr.reject_status = 413;
 			pr.reject_reason = "Payload Too Large";
 			return pr;
 		}

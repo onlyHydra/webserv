@@ -9,11 +9,11 @@ Date: 8/10/2025
 #define RATELIMITCONFIG_H
 
 class RateLimitConfig {
-public:
-    RateLimitConfig();
-    ~RateLimitConfig();
+	public:
+		RateLimitConfig();
+		~RateLimitConfig();
 
-private:
+	private:
 
 };
 

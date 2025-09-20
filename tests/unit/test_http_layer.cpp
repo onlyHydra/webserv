@@ -1,4 +1,7 @@
 #include <catch2/catch_all.hpp>
+#include <iostream>
+#include <fstream>
+#include <ostream>
 #include "Headers.h"
 #include "CookieJar.h"
 
@@ -7,14 +10,14 @@ TEST_CASE("HTTP Layer tests", "[https]")
 	SECTION("Header tests")
 	{
 		{
+			std::ofstream out;
 			// Check everything on unset Header
 			Headers test;
 			Headers empty;
 
 			test.getBegin();
 			test.getEnd();
-			test.show(std::cout);
-			std::cout << test;
+			out << test;
 			REQUIRE(test.keyExists("Something") == 0);
 			REQUIRE(test.serialize() == "\r\n");
 			REQUIRE(test.get("Something") == "");
@@ -83,14 +86,14 @@ TEST_CASE("HTTP Layer tests", "[https]")
 	SECTION("CookieJar")
 	{
 		{
+			std::ofstream out;
 			// Check everything on unset CookieJar
 			CookieJar test;
 			Headers test2;
 
 			test.getBegin();
 			test.getEnd();
-			test.show(std::cout);
-			std::cout << test;
+			out << test;
 			REQUIRE(test.keyExists("Something") == 0);
 			REQUIRE(test.get("Something") == "");
 			REQUIRE(test.getLength() == 0);

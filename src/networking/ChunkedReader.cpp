@@ -1,5 +1,4 @@
 #include "ChunkedReader.h"
-
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -12,7 +11,7 @@
 // ---- tiny helpers ----
 static int hexval(int c)
 {
-	if (c >= '0' && c <= '9')
+	if (c >= '0' && c <= '9') 
 		return c - '0';
 	if (c >= 'a' && c <= 'f')
 		return c - 'a' + 10;
@@ -21,6 +20,9 @@ static int hexval(int c)
 	return -1;
 }
 
+/**
+ * bac
+ */
 static int open_tmpfile(std::string &out_path, const std::string &dir_hint)
 {
 	std::string tmpl;
@@ -48,12 +50,12 @@ static int open_tmpfile(std::string &out_path, const std::string &dir_hint)
 }
 
 ChunkedReader::ChunkedReader(std::vector<char> &mem_body,
-							 std::size_t spill_threshold,
-							 const std::string &tmp_dir)
+							std::size_t spill_threshold,
+							const std::string &tmp_dir)
 	: st_(S_READING_SIZE), total_(0), chunk_rem_(0), linebuf_(),
-	  spill_threshold_(spill_threshold), tmp_dir_(tmp_dir), mem_(mem_body),
-	  on_disk_(false), fd_(-1), path_(), trailers_(),
-	  pending_(), pending_off_(0)
+	spill_threshold_(spill_threshold), tmp_dir_(tmp_dir), mem_(mem_body),
+	on_disk_(false), fd_(-1), path_(), trailers_(),
+	pending_(), pending_off_(0)
 {
 	if (!mem_.empty())
 		mem_.clear();
@@ -149,13 +151,9 @@ bool ChunkedReader::parse_size_line()
 			linebuf_.erase(0, i + 2); // remove "<line>\r\n"
 
 			if (chunk_rem_ == 0)
-			{
 				st_ = S_TRAILERS;
-			}
 			else
-			{
 				st_ = S_READING_DATA;
-			}
 			return true;
 		}
 		++i;
@@ -174,7 +172,7 @@ bool ChunkedReader::parse_trailers()
 		for (std::size_t i = 0; i + 3 < linebuf_.size(); ++i)
 		{
 			if (linebuf_[i] == '\r' && linebuf_[i + 1] == '\n' &&
-			    linebuf_[i + 2] == '\r' && linebuf_[i + 3] == '\n')
+				linebuf_[i + 2] == '\r' && linebuf_[i + 3] == '\n')
 			{
 				// keep trailers if you want
 				trailers_ = linebuf_.substr(0, i + 2);

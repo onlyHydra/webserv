@@ -39,7 +39,7 @@ static bool parse_size_decimal(const std::string &s, std::size_t &out)
 	return true;
 }
 
-static void setFail(int errorcode, std::string message , HeaderCheck& hc)
+static void setFail(int errorcode, std::string message, HeaderCheck &hc)
 {
 	hc.ok = false;
 	hc.error_status = errorcode;
@@ -58,7 +58,7 @@ HeaderCheck HeaderProcessor::analyze(const HttpRequest &req,
 		const std::string &host = hdrs.get("Host");
 		if (host.empty() || trim_copy(host).empty())
 		{
-			setFail(400,"Bad Request",hc);
+			setFail(400, "Bad Request", hc);
 			return hc;
 		}
 	}
@@ -75,7 +75,7 @@ HeaderCheck HeaderProcessor::analyze(const HttpRequest &req,
 		}
 		else
 		{
-			setFail(400,"Bad Request",hc);
+			setFail(400, "Bad Request", hc);
 			return hc;
 		}
 	}
@@ -88,7 +88,7 @@ HeaderCheck HeaderProcessor::analyze(const HttpRequest &req,
 		std::size_t n = 0;
 		if (!parse_size_decimal(cl_trim, n))
 		{
-			setFail(400,"Bad Request",hc);
+			setFail(400, "Bad Request", hc);
 			return hc;
 		}
 		hc.content_length = n;
@@ -97,7 +97,7 @@ HeaderCheck HeaderProcessor::analyze(const HttpRequest &req,
 	// -------- TE vs CL mutual exclusivity --------
 	if (hc.chunked && hc.content_length > 0)
 	{
-		setFail(400,"Bad Request",hc);
+		setFail(400, "Bad Request", hc);
 		return hc;
 	}
 
@@ -119,7 +119,7 @@ HeaderCheck HeaderProcessor::analyze(const HttpRequest &req,
 			hc.expect_continue = true;
 		else
 		{
-			setFail(400,"Bad Request",hc);
+			setFail(400, "Bad Request", hc);
 			return hc;
 		}
 	}

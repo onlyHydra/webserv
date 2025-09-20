@@ -56,5 +56,5 @@ bool ExpectContinue::needed(const Headers &h)
 void ExpectContinue::write100(ChainBuf &out)
 {
 	static const char kMsg[] = "HTTP/1.1 100 Continue\r\n\r\n";
-	(void)out.push_copy(kMsg, sizeof(kMsg) - 1); 
+	(void)out.push_copy(kMsg, sizeof(kMsg) - 1);
 }

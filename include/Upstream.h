@@ -9,11 +9,11 @@ Date: 8/10/2025
 #define UPSTREAM_H
 
 class Upstream {
-public:
-    Upstream();
-    ~Upstream();
+	public:
+		Upstream();
+		~Upstream();
 
-private:
+	private:
 
 };
 

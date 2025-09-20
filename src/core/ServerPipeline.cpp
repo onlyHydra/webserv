@@ -17,35 +17,53 @@ date: 8/10/2025
 #include "PutPatchHandler.h"
 #include "RequestContext.h"
 #include "ResponseFactory.h"
+#include "UploadHandler.h"
 #include <sys/stat.h>
 #include <sstream>
 
-bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRequest &req, HttpResponse &res, RouteDecision &decision)
+bool ServerPipeline::processRequest(const ServerConfig &cfg,
+									int vs_indx,
+									HttpRequest &req,
+									HttpResponse &res,
+									RouteDecision &decision,
+									CGIStreamer *cgi_streamer)
 {
+	// ---- Build RequestContext from inputs ----
 	RequestContext ctx;
 	ctx.cfg = &cfg;
 	ctx.vs_index = vs_indx;
-	ctx.vs = NULL;
-	if (ctx.vs == NULL && ctx.vs_index >= 0 && ctx.vs_index < (int)cfg.servers().size())
+	ctx.vs = 0;
+
+	if (ctx.vs_index >= 0 && ctx.vs_index < (int)cfg.servers().size())
 		ctx.vs = &cfg.servers()[ctx.vs_index];
-
-	if (ctx.vs == NULL)
+	if (!ctx.vs)
 	{
-		// setError(rep, 500, "No virtual server resolved");
-		return false;
+		res = ResponseFactory::makeText(500, "No virtual server resolved\n",
+										"Internal Server Error", /*close*/ true);
+		return true;
 	}
-	ctx.loc = decision.loc;
 
-	// make handlers location-aware using fields that exist in RequestContext
+	// Copy routing decision details
 	ctx.loc = decision.loc;
 	ctx.effective_root = decision.effective_root;
 	ctx.rel_path = decision.rel_path;
+	ctx.cgi_ext = decision.cgi_ext;
+	ctx.matched_prefix = decision.matched_prefix;
+	ctx.upstream_name = decision.upstream_name;
 
-	// <<<
+	// Body/temp defaults
+	ctx.temp_file_used = false;
+	ctx.temp_filename = std::string();
 
-	// Pick the handler
+	// CGI streamer for async CGI
+	ctx.cgi_streamer = cgi_streamer;
+
+	// ---- Debug: log the chosen route (avoid fallthrough warnings) ----
+	fprintf(stderr, "[ROUTE] kind=%d path=%s\n",
+			(int)decision.kind, decision.rel_path.c_str());
+
+	// ---- Pick the handler once ----
 	Handler *h = 0;
-
 	switch (decision.kind)
 	{
 	case RouteDecision::HK_STATIC:
@@ -60,15 +78,25 @@ bool ServerPipeline::processRequest(const ServerConfig &cfg, int vs_indx, HttpRe
 	case RouteDecision::HK_PUTPATCH:
 		h = new PutPatchHandler();
 		break;
-	case RouteDecision::HK_ERROR:
-		return false;
+	case RouteDecision::HK_UPLOAD:
+		h = new UploadHandler();
 		break;
-	default:
-		// setError(res, dec.status, toReason(dec.status));
+
+	case RouteDecision::HK_ERROR:
+	{
+		const int code = decision.status ? decision.status : 500;
+		res = ResponseFactory::makeText(code, "", /*reason*/ "", /*close*/ true);
 		return true;
 	}
 
-	const bool done = h->handle(req, res, ctx); // true => response complete
+	default:
+		res = ResponseFactory::makeText(500, "Unhandled route kind\n",
+										"Internal Server Error", /*close*/ true);
+		return true;
+	}
+
+	// ---- Execute handler ----
+	const bool done = h->handle(req, res, ctx);
 	delete h;
 	return done;
 }

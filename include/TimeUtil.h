@@ -9,11 +9,11 @@ Date: 8/10/2025
 #define TIMEUTIL_H
 
 class TimeUtil {
-public:
-    TimeUtil();
-    ~TimeUtil();
+	public:
+		TimeUtil();
+		~TimeUtil();
 
-private:
+	private:
 
 };
 

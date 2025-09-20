@@ -18,25 +18,38 @@ public:
 	std::size_t consume(const char *data, std::size_t len);
 
 	// Mark protocol end-of-body (e.g., after chunked trailers or fixed CL).
-	void set_done(bool v) { done = v; }
+	void set_done(bool v) { 
+		done = v; 
+	}
 
 	// Reader is complete when done && pending_size()==0.
-	bool complete() const { return done && pending_size() == 0; }
+	bool complete() const { 
+		return done && pending_size() == 0; 
+	}
 
 	// Total payload bytes accepted so far (staged + already flushed).
-	std::size_t bytes_received() const { return total; }
+	std::size_t bytes_received() const { 
+		return total; 
+	}
 
 	// Ensure the body file exists; returns false on failure.
 	bool ensure_open();
+	const std::string& get_path() const;
 
 	// FD of the temp body file (>=0 when open, else -1).
-	int getFd() const { return fd.get(); }
+	int getFd() const { 
+		return fd.get(); 
+	}
 
 	// Absolute path to the temp file (valid after ensure_open()).
-	const std::string &getBodyFilePath() const { return path; }
+	const std::string &getBodyFilePath() const { 
+		return path; 
+	}
 
 	// Buffer that still needs to be flushed to disk by the event loop:
-	std::size_t pending_size() const { return pending.size() - pending_off; }
+	std::size_t pending_size() const { 
+		return pending.size() - pending_off; 
+	}
 	const char *pending_data() const
 	{
 		return pending_size() ? &pending[0] + pending_off : 0;

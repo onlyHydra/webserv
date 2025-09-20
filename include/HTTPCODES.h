@@ -34,6 +34,11 @@ Date: 11/08/2025
 // Request conflicts with current state of server
 # define HTTP_CONFLICT 409
 
+# define HTTP_LENGTH_REQUIRED 411
+
+// Requests ETag does not match the current ETag (file out of date)
+# define HTTP_PRECON_FAIL 412
+
 // Unsupported Media Type
 # define HTTP_INV_MEDIA 415
 
@@ -42,6 +47,10 @@ Date: 11/08/2025
 
 // Server encountered unexpected condition stopping it from fulfilling request
 # define HTTP_INV_SERVER_ERR 500
+
+# define HTTP_NOT_IMPLEMENTED 501
+
+# define HTTP_VERSION_NOT_SUPP 505
 
 // When server overloads, network fails or other server-side error
 # define HTTP_SERVER_ERROR 599
