@@ -16,6 +16,7 @@
 #include <stdlib.h>   // realpath
 #include <limits.h>   // PATH_MAX
 #include <unistd.h>   // mkstemp, close
+#include <iostream>
 
 
 static bool realpathString(const std::string& in, std::string& out) {
@@ -148,112 +149,196 @@ bool UploadHandler::onPartEnd() {
 // ---- handler entry ----
 bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& ctx)
 {
-	// per-request reset
-	saved_.clear();
-	last_error_code_ = 0;
-	last_error_msg_.clear();
-	if (cur_fd_ >= 0) { ::close(cur_fd_); cur_fd_ = -1; }
+    // ---------- helpers ----------
+    struct Err {
+        static bool send(HttpResponse& res, int code, const std::string& msg, bool close)
+        {
+            std::string text = msg + "\n";
+            res.status = code;
+            if      (code == 415) res.reason = "Unsupported Media Type";
+            else if (code == 409) res.reason = "Conflict";
+            else if (code == 413) res.reason = "Payload Too Large";
+            else if (code >= 500) res.reason = "Internal Server Error";
+            else                  res.reason = "Bad Request";
 
-	// helper for visible error
-	struct Err {
-		static bool send(HttpResponse& res, int code, const std::string& msg, bool close) {
-			std::string text = msg + "\n";
-			res.status = code;
-			res.reason = (code == 415 ? "Unsupported Media Media" :
-						(code >= 500 ? "Internal Server Error" :
-										(code == 409 ? "Conflict" :
-										(code == 413 ? "Payload Too Large" : "Bad Request"))));
-			res.headers.set("Content-Type", "text/plain; charset=utf-8");
-			std::ostringstream cl; cl << (unsigned long)text.size();
-			res.headers.set("Content-Length", cl.str());
-			res.body.assign(text.begin(), text.end());
-			res.bodyLength = text.size();
-			res.headers.set("Connection", close ? "close" : "keep-alive");
-			res.headers.set("Server", "webserv/1.0");
-			return true;
-		}
-	};
+            res.headers.set("Content-Type", "text/plain; charset=utf-8");
+            std::ostringstream cl; cl << (unsigned long)text.size();
+            res.headers.set("Content-Length", cl.str());
+            res.body.assign(text.begin(), text.end());
+            res.bodyLength = text.size();
+            res.headers.set("Connection", close ? "close" : "keep-alive");
+            res.headers.set("Server", "webserv/1.0");
+            return true;
+        }
+    };
 
-	// config
-	const Location* L = ctx.loc;
-	if (!L) { fprintf(stderr, "[UPLOAD] no location\n"); return Err::send(res, 500, "No location", true); }
-	upload_dir_   = L->upload_store;
-	overwrite_    = L->upload_overwrite;
-	per_part_cap_ = L->upload_max_file_size;
+    // Sniff boundary from the beginning of a multipart body if Content-Type is missing.
+    // We look for a first line like:  "--<boundary>\r\n"
+    struct Sniffer {
+        static std::string sniffFromMem(const std::vector<char>& v)
+        {
+            if (v.size() < 6) return std::string(); // minimal "--x\r\n"
+            // find end of first line (CRLF or LF)
+            std::size_t i = 0, n = v.size();
+            while (i < n && v[i] != '\n' && !(i + 1 < n && v[i] == '\r' && v[i + 1] == '\n')) ++i;
+            if (i == 0 || i >= n) return std::string();
+            std::string line(&v[0], &v[0] + i);
+            if (line.size() >= 3 && line[0] == '-' && line[1] == '-') {
+                std::string b = line.substr(2);
+                // trim simple spaces/tabs defensively
+                while (!b.empty() && (b[b.size()-1] == ' ' || b[b.size()-1] == '\t')) b.erase(b.size()-1);
+                while (!b.empty() && (b[0] == ' ' || b[0] == '\t')) b.erase(0,1);
+                if (!b.empty()) return b;
+            }
+            return std::string();
+        }
+        static std::string sniffFromFile(const std::string& path)
+        {
+            int fd = ::open(path.c_str(), O_RDONLY);
+            if (fd < 0) return std::string();
+            char buf[4096];
+            ssize_t r = ::read(fd, buf, (int)sizeof(buf));
+            ::close(fd);
+            if (r <= 0) return std::string();
+            std::vector<char> v(buf, buf + r);
+            return sniffFromMem(v);
+        }
+    };
 
-	fprintf(stderr, "[UPLOAD] dir='%s' overwrite=%d per_part_cap=%lu\n",
-			upload_dir_.c_str(), overwrite_?1:0, (unsigned long)per_part_cap_);
+    // ---------- debug: quick summary ----------
+    std::cerr << "[UPLOAD] disk=" << (req.isBodyOnDisk()?1:0)
+              << " mem="  << (unsigned long)req.getBodyLength()
+              << " CT(raw)=" << req.getHeaders().get("Content-Type")
+              << std::endl;
 
-	if (upload_dir_.empty())        return Err::send(res, 501, "Uploads disabled (upload_store empty)", true);
-	if (!ensureUploadDirIsSafe(upload_dir_))
-									return Err::send(res, 500, "Bad upload_store (missing or not a directory)", true);
+    // ---------- per-request reset ----------
+    saved_.clear();
+    last_error_code_ = 0;
+    last_error_msg_.clear();
+    if (cur_fd_ >= 0) { ::close(cur_fd_); cur_fd_ = -1; }
 
-	// content-type
-	const std::string ctype = req.getHeaders().get(HDR_CONTENT_TYPE);
-	fprintf(stderr, "[UPLOAD] Content-Type: %s\n", ctype.c_str());
-	MultipartReader mp;
-	if (!mp.initFromContentType(ctype))
-		return Err::send(res, 415, "multipart/form-data required", false);
+    // ---------- config ----------
+    const Location* L = ctx.loc;
+    if (!L) {
+        std::fprintf(stderr, "[UPLOAD] no location\n");
+        return Err::send(res, 500, "No location", true);
+    }
+    upload_dir_   = L->upload_store;
+    overwrite_    = L->upload_overwrite;
+    per_part_cap_ = L->upload_max_file_size;
 
-	// body source
-	std::string body_file = req.getBodyFilePath();
-	std::vector<char> mem;
-	if (body_file.empty()) mem = req.readBodyToVector();
+    std::fprintf(stderr, "[UPLOAD] dir='%s' overwrite=%d per_part_cap=%lu\n",
+                 upload_dir_.c_str(), overwrite_?1:0, (unsigned long)per_part_cap_);
 
-	fprintf(stderr, "[UPLOAD] body_file='%s' mem_size=%lu\n",
-			body_file.c_str(), (unsigned long)mem.size());
+    if (upload_dir_.empty())
+        return Err::send(res, 501, "Uploads disabled (upload_store empty)", true);
+    if (!ensureUploadDirIsSafe(upload_dir_))
+        return Err::send(res, 500, "Bad upload_store (missing or not a directory)", true);
 
-	if (body_file.empty() && mem.empty())
-		return Err::send(res, 400, "Body unavailable (no temp file, no memory body)", true);
+    // ---------- content-type (prefer header; fallback to sniff) ----------
+    std::string ctype = req.getHeaders().get("Content-Type");
+    std::fprintf(stderr, "[UPLOAD] Content-Type(raw): %s\n", ctype.c_str());
 
-	// stream into parser
-	const std::size_t CHUNK = 64 * 1024;
-	if (!body_file.empty()) {
-		int fd = ::open(body_file.c_str(), O_RDONLY);
-		if (fd < 0) {
-			std::ostringstream m; m << "Body file open failed: " << body_file << " errno=" << errno;
-			return Err::send(res, 400, m.str(), true);
-		}
-		std::vector<char> buf; buf.resize(CHUNK);
-		for (;;) {
-			ssize_t r = ::read(fd, &buf[0], (int)buf.size());
-			if (r == 0) break;
-			if (r < 0) { if (errno==EINTR) continue; ::close(fd); return Err::send(res, 400, "Read error", true); }
-			mp.feed(&buf[0], (std::size_t)r, this);
-			if (mp.error()) { ::close(fd); break; }
-		}
-		::close(fd);
-	} else {
-		if (!mem.empty()) mp.feed(&mem[0], mem.size(), this);
-	}
+    std::string body_file = req.getBodyFilePath();
+    std::vector<char> mem;
+    if (body_file.empty())
+        mem = req.readBodyToVector();
 
-	// single, consolidated error mapping (incl. conflicts/limits from sink)
-	if (mp.error()) {
-		int code = last_error_code_ ? last_error_code_ : 400;
-		std::string msg = last_error_msg_.empty()
-			? std::string("multipart parse error: ") + mp.errorMsg()
-			: last_error_msg_;
-		return Err::send(res, code, msg, (code >= 500));
-	}
+    if (ctype.empty()) {
+        std::string b = !body_file.empty()
+                        ? Sniffer::sniffFromFile(body_file)
+                        : Sniffer::sniffFromMem(mem);
+        if (!b.empty()) {
+            ctype = "multipart/form-data; boundary=" + b;
+            std::fprintf(stderr, "[UPLOAD] inferred Content-Type: %s\n", ctype.c_str());
+        }
+    }
 
-	if (!mp.done())
-		return Err::send(res, 400, "Incomplete multipart (no closing boundary)", false);
+    // Validate multipart/form-data prefix (case-insensitive)
+    bool ct_ok = false;
+    if (!ctype.empty()) {
+        const char* want = "multipart/form-data";
+        // C++98: lowercase the prefix and compare
+        std::string pref = ctype.substr(0, 19);
+        for (std::size_t i = 0; i < pref.size(); ++i) {
+            char ch = pref[i];
+            if (ch >= 'A' && ch <= 'Z') pref[i] = char(ch - 'A' + 'a');
+        }
+        ct_ok = (pref == want);
+    }
+    if (!ct_ok)
+        return Err::send(res, 415, "multipart/form-data required", false);
 
-	// success
-	std::ostringstream ok;
-	ok << "Uploaded:";
-	for (size_t i=0;i<saved_.size();++i) ok << (i? ", ":" ") << saved_[i];
-	std::string text = ok.str() + "\n";
-	res.status = saved_.empty()?200:201;
-	res.reason = saved_.empty()? "OK" : "Created";
-	res.headers.set("Content-Type", "text/plain; charset=utf-8");
-	std::ostringstream cl; cl << (unsigned long)text.size();
-	res.headers.set("Content-Length", cl.str());
-	res.body.assign(text.begin(), text.end());
-	res.bodyLength = text.size();
-	res.headers.set("Connection", "keep-alive");
-	res.headers.set("Server", "webserv/1.0");
-	return true;
+    // ---------- parse multipart ----------
+    MultipartReader mp;
+    if (!mp.initFromContentType(ctype)) {
+        std::fprintf(stderr, "[UPLOAD] Multipart init failed; CT='%s'\n", ctype.c_str());
+        return Err::send(res, 415, "multipart/form-data required", false);
+    }
+
+    std::fprintf(stderr, "[UPLOAD] body_file='%s' mem_size=%lu\n",
+                 body_file.c_str(), (unsigned long)mem.size());
+    if (body_file.empty() && mem.empty())
+        return Err::send(res, 400, "Body unavailable (no temp file, no memory body)", true);
+
+    const std::size_t CHUNK = 64 * 1024;
+    if (!body_file.empty())
+    {
+        int fd = ::open(body_file.c_str(), O_RDONLY);
+        if (fd < 0) {
+            std::ostringstream m; m << "Body file open failed: " << body_file << " errno=" << errno;
+            return Err::send(res, 400, m.str(), true);
+        }
+        std::vector<char> buf; buf.resize(CHUNK);
+        for (;;)
+        {
+            ssize_t r = ::read(fd, &buf[0], (int)buf.size());
+            if (r == 0) break;
+            if (r < 0) {
+                if (errno == EINTR) continue;
+                ::close(fd);
+                return Err::send(res, 400, "Read error", true);
+            }
+            mp.feed(&buf[0], (std::size_t)r, this);
+            if (mp.error()) { ::close(fd); break; }
+        }
+        ::close(fd);
+    }
+    else
+    {
+        if (!mem.empty())
+            mp.feed(&mem[0], mem.size(), this);
+    }
+
+    // ---------- errors ----------
+    if (mp.error()) {
+        int code = last_error_code_ ? last_error_code_ : 400;
+        std::string msg = last_error_msg_.empty()
+            ? std::string("multipart parse error: ") + mp.errorMsg()
+            : last_error_msg_;
+        return Err::send(res, code, msg, (code >= 500));
+    }
+    if (!mp.done())
+        return Err::send(res, 400, "Incomplete multipart (no closing boundary)", false);
+
+    // ---------- success ----------
+    std::ostringstream ok;
+    ok << "Uploaded:";
+    for (size_t i = 0; i < saved_.size(); ++i)
+        ok << (i ? ", " : " ") << saved_[i];
+
+    std::string text = ok.str() + "\n";
+    res.status = saved_.empty() ? 200 : 201;
+    res.reason = saved_.empty() ? "OK" : "Created";
+    res.headers.set("Content-Type", "text/plain; charset=utf-8");
+    std::ostringstream cl; cl << (unsigned long)text.size();
+    res.headers.set("Content-Length", cl.str());
+    res.body.assign(text.begin(), text.end());
+    res.bodyLength = text.size();
+    res.headers.set("Connection", "keep-alive");
+    res.headers.set("Server", "webserv/1.0");
+    return true;
 }
+
 
 

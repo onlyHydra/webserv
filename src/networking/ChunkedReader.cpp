@@ -100,7 +100,8 @@ std::size_t ChunkedReader::flush_to_disk(std::size_t max_bytes) {
 			st_ = S_ERROR;
 			break;
 		}
-		if (w == 0) break; // shouldn't happen; avoid tight loop
+		if (w == 0) 
+			break; // shouldn't happen; avoid tight loop
 		pending_off_ += static_cast<std::size_t>(w);
 		written_total += static_cast<std::size_t>(w);
 	}
@@ -143,10 +144,18 @@ bool ChunkedReader::parse_size_line() {
 		if (c == ';') break;
 		if (c == ' ' || c == '\t') break; // allow spaces before extensions
 		unsigned v;
-		if (c >= '0' && c <= '9')       { v = static_cast<unsigned>(c - '0'); }
-		else if (c >= 'a' && c <= 'f')  { v = 10u + static_cast<unsigned>(c - 'a'); }
-		else if (c >= 'A' && c <= 'F')  { v = 10u + static_cast<unsigned>(c - 'A'); }
-		else { return false; }
+		if (c >= '0' && c <= '9')  { 
+			v = static_cast<unsigned>(c - '0'); 
+		}
+		else if (c >= 'a' && c <= 'f')  { 
+			v = 10u + static_cast<unsigned>(c - 'a'); 
+		}
+		else if (c >= 'A' && c <= 'F')  { 
+			v = 10u + static_cast<unsigned>(c - 'A'); 
+		}
+		else { 
+			
+			return false; }
 		saw_digit = true;
 		// guard overflow: clamp if it would wrap (extremely unlikely here)
 		if (value > (static_cast<std::size_t>(-1) >> 4))
@@ -154,7 +163,8 @@ bool ChunkedReader::parse_size_line() {
 		else
 			value = (value << 4) | v;
 	}
-	if (!saw_digit) return false;
+	if (!saw_digit)
+		return false;
 
 	chunk_rem_ = value;
 	if (chunk_rem_ == 0) {
@@ -221,8 +231,10 @@ bool ChunkedReader::write_payload(const char *p, std::size_t n) {
 
 std::size_t ChunkedReader::consume(const char* p, std::size_t n)
 {
-	if (!p || n == 0) return 0;
-	if (st_ == S_ERROR || st_ == S_DONE) return 0;
+	if (!p || n == 0)
+		return 0;
+	if (st_ == S_ERROR || st_ == S_DONE)
+		return 0;
 
 	std::size_t taken = 0;
 
@@ -281,8 +293,10 @@ std::size_t ChunkedReader::consume(const char* p, std::size_t n)
 		case S_READING_DATA: {
 			// Take as much as we can for this chunk’s data
 			std::size_t want = n - taken;
-			if (want > chunk_rem_) want = chunk_rem_;
-			if (want == 0) return taken;
+			if (want > chunk_rem_) 
+				want = chunk_rem_;
+			if (want == 0) 
+				return taken;
 
 			// Stage payload (mem or pending_ if on-disk)
 			// Note: write_payload() may return false to hint “don’t read more”,
@@ -301,7 +315,8 @@ std::size_t ChunkedReader::consume(const char* p, std::size_t n)
 			// After data chunk, we must see "\r\n".
 			const std::size_t rem = n - taken;
 
-			if (rem == 0) return taken;
+			if (rem == 0)
+				return taken;
 
 			if (rem == 1) {
 				// If it's just '\r', buffer it and return 1 consumed
@@ -336,20 +351,40 @@ std::size_t ChunkedReader::consume(const char* p, std::size_t n)
 		}
 
 		case S_TRAILERS: {
-			// Read until CRLFCRLF. We ignore actual trailer contents.
-			// Keep everything in linebuf_ until we see the terminator.
-			const std::size_t rem = n - taken;
-			linebuf_.append(p + taken, rem);
-			taken = n;
+		// Collect trailer lines until we hit an empty line ("\r\n").
+		// Empty trailers => immediate "\r\n" -> DONE.
 
-			const std::string::size_type pos = linebuf_.find("\r\n\r\n");
-			if (pos != std::string::npos) {
-				// Done; we can discard trailers
-				st_ = S_DONE;
-				// (Optionally keep trailers_ if you want them)
+		// Append whatever we have this call
+		linebuf_.append(p + taken, n - taken);
+		taken = n;
+
+		// Process any complete lines in linebuf_
+		for (;;) {
+			std::string::size_type eol = linebuf_.find("\r\n");
+			if (eol == std::string::npos) {
+				// need more bytes to complete a line
+				break;
 			}
-			return taken; // we always consume what we received here
+
+			if (eol == 0) {
+				// empty line: end of trailers -> DONE
+				// consume the CRLF and finish
+				linebuf_.erase(0, 2);
+				st_ = S_DONE;
+				break;
+			}
+
+			// non-empty trailer line: store/ignore it, then drop it
+			if (trailers_.empty())
+				trailers_.reserve(trailers_.size() + eol + 2);
+			trailers_.append(linebuf_, 0, eol + 2);
+			linebuf_.erase(0, eol + 2);
+
+			// keep looping: there might be multiple trailer lines in buffer
 		}
+		return taken;
+	}
+
 
 		case S_DONE:
 		case S_ERROR:

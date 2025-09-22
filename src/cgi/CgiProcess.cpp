@@ -7,7 +7,6 @@ date: 8/10/2025
 
 #include "CgiProcess.h"
 #include "VirtualServer.h" // full definition of CgiSpec for the 3-arg overload
-
 #include <unistd.h> // pipe, fork, dup2, execve, close
 #include <fcntl.h>	// fcntl
 #include <cstring>	// strerror
@@ -265,8 +264,12 @@ bool CgiProcess::spawn(const std::string &bin,
 					? (nowMs() + (unsigned long long)timeout_ms)
 					: 0ULL;
 
-	int inPipe[2] = {-1, -1};  // parent writes -> child reads (stdin)
-	int outPipe[2] = {-1, -1}; // child writes -> parent reads (stdout/stderr)
+	int inPipe[2] = {
+		-1, -1
+	};  // parent writes -> child reads (stdin)
+	int outPipe[2] = {
+		-1, -1
+	}; // child writes -> parent reads (stdout/stderr)
 
 	if (::pipe(inPipe) < 0)
 	{

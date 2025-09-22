@@ -180,7 +180,8 @@ Correct framing enables persistent connections without knowing Content-Length.
 // In CGIStreamer.cpp
 void CGIStreamer::enqueueOut(const char* data, std::size_t len)
 {
-	if (!data || len == 0) return;
+	if (!data || len == 0) 
+		return;
 
 	// Allow the head, suppress any body for HEAD after the head is queued
 	if (req_.getMethod() == "HEAD" && http_head_queued_) {
@@ -242,7 +243,7 @@ void CGIStreamer::enqueueFinalChunk()
 	sent_final_chunk_ = true;
 
 	if (chunked_mode_) {
-		static const char kFinal[] = "0\r\n\r\n";   // C++98-safe
+		static const char kFinal[] = "0\r\n\r\n";
 		out_buf_.insert(out_buf_.end(), kFinal, kFinal + sizeof(kFinal) - 1);
 	}
 }
@@ -501,7 +502,7 @@ void CGIStreamer::closeStdin()
 	if (cgi_in_fd_ >= 0)
 	{
 		if (loop_)
-			loop_->removeFD(cgi_in_fd_); // unregister from poller
+			loop_->removeFD(cgi_in_fd_);
 		::close(cgi_in_fd_);
 		cgi_in_fd_ = -1;
 	}
@@ -515,7 +516,7 @@ void CGIStreamer::closeStdout()
 	if (cgi_out_fd_ >= 0)
 	{
 		if (loop_)
-			loop_->removeFD(cgi_out_fd_); // unregister from poller
+			loop_->removeFD(cgi_out_fd_);
 		::close(cgi_out_fd_);
 		cgi_out_fd_ = -1;
 	}
@@ -920,8 +921,10 @@ void CGIStreamer::onCgiReadable(int fd)
 					while (j < hdr.size() && hdr[j] != '\r' && hdr[j] != '\n')
 						++j;
 					line.assign(hdr, i, j - i);
-					if (j < hdr.size() && hdr[j] == '\r') ++j;
-					if (j < hdr.size() && hdr[j] == '\n') ++j;
+					if (j < hdr.size() && hdr[j] == '\r')
+						++j;
+					if (j < hdr.size() && hdr[j] == '\n')
+						++j;
 					i = j;
 
 					if (!line.empty())
