@@ -894,6 +894,20 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 			continue;
 		}
 
+		// ================= GLOBAL: defaultAllowIp true/false ;
+		if (t0 == "defaultAllowIp")
+		{
+			if (i + 2 >= N)
+				throw std::runtime_error("defaultAllowIp expects: true/false/banana ;");
+			i++;
+			if (tok[i] == "true")
+				this->ip_list.defAllow = true;
+			else
+				this->ip_list.defAllow = false;
+			i++;
+			continue ;
+		}
+
 		// tolerate stray semicolons at top level
 		if (t0 == ";")
 		{
