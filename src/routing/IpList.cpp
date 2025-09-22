@@ -1,15 +1,5 @@
 #include "IpList.h"
 
-IpList::IpList(void): allowed(), denied(), defAllow(true)
-{
-}
-
-IpList::~IpList(void)
-{
-	allowed.clear();
-	denied.clear();
-}
-
 static bool	isDigit(char in)
 {
 	if (in >= '0' && in <= '9')
@@ -31,26 +21,91 @@ unsigned int cidrToMask(unsigned int cidr)
 	return (current);
 }
 
-/**
- * Add a new rule for allowing Ip
- * Input should be something like xxx.xxx.xxx.xxx/xx
- * where xxx is numbers from 0-255, xx is from 0-32
- * and "/xx" is optional, but if missing, will be assumed to be "/32"
- */
-// void addAllowRule(const std::string &source)
-// {
-// 	bool singleIp = false;
-// 	if (source.empty())
-// 		return ;
-// 	if (source.find("/") == std::string::npos)
-// 		singleIp = true;
-// }
+IpList::IpList(void): allowed(), denied(), defAllow(true)
+{
+}
 
-// XXX .YYY .ZZZ .AAA /24
+IpList::~IpList(void)
+{
+	allowed.clear();
+	denied.clear();
+}
 
-/**
- * Returns false, when 
- */
+bool IpList::checkIp(const std::string &source) const
+{
+	unsigned int ip;
+	unsigned int mask;
+	unsigned int netAdr;
+	size_t maxLoop = allowed.size();
+
+	if (!IpList::stringToIp(source, ip, mask))
+		return (false);
+	netAdr = IpList::getNetwork(ip, mask);
+
+	// Check if its allowed
+	for (size_t i = 0; i < maxLoop; i++)
+	{
+		if (allowed[i].base == netAdr && allowed[i].mask == mask)
+			return (true);
+	}
+
+	// If not allowed, check if forbidden
+	for (size_t i = 0; i < maxLoop; i++)
+	{
+		if (denied[i].base == netAdr && denied[i].mask == mask)
+			return (false);
+	}
+
+	// If neither, check what default is
+	return (defAllow);
+}
+
+bool IpList::addAllowRule(const std::string &source)
+{
+	unsigned int ip;
+	unsigned int mask;
+	unsigned int networkAdr;
+	size_t maxLoop = allowed.size();
+
+	if (!IpList::stringToIp(source, ip, mask))
+		return (false);
+	networkAdr = getNetwork(ip, mask);
+
+	for (size_t i = 0; i < maxLoop; i++)
+	{
+		if (allowed[i].base == networkAdr && allowed[i].mask == mask)
+			return (true);
+	}
+	IpRule rule;
+	rule.base = networkAdr;
+	rule.mask = mask;
+	allowed.push_back(rule);
+	return (true);
+}
+
+bool IpList::addDenyRule(const std::string &source)
+{
+	unsigned int ip;
+	unsigned int mask;
+	unsigned int networkAdr;
+	size_t maxLoop = denied.size();
+
+	if (!IpList::stringToIp(source, ip, mask))
+		return (false);
+	networkAdr = getNetwork(ip, mask);
+
+	for (size_t i = 0; i < maxLoop; i++)
+	{
+		if (denied[i].base == networkAdr && denied[i].mask == mask)
+			return (true);
+	}
+	IpRule rule;
+	rule.base = networkAdr;
+	rule.mask = mask;
+	denied.push_back(rule);
+	return (true);
+}
+
 bool IpList::stringToIp(const std::string &source, unsigned int &ip, unsigned int &mask)
 {
 	unsigned int octet;
@@ -130,4 +185,9 @@ bool IpList::stringToIp(const std::string &source, unsigned int &ip, unsigned in
 		return (false);
 	mask = cidrToMask(cidr);
 	return (true);
+}
+
+unsigned int IpList::getNetwork(unsigned int ip, unsigned int mask)
+{
+	return (ip & mask);
 }

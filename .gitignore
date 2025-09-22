@@ -6,3 +6,4 @@ libcatch2.a
 test_webserv_stubs
 test_webserv
 webserv
+www/upload/files/
