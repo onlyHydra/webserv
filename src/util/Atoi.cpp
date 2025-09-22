@@ -17,7 +17,7 @@ Atoi::~Atoi()
 	// Destructor
 }
 
-bool	isDigit(char in)
+static bool	isDigit(char in)
 {
 	if (in >= '0' && in <= '9')
 		return (true);
@@ -54,6 +54,39 @@ int	Atoi::atoi(const std::string &in)
 		i++;
 	}
 	return (result * fac);
+}
+
+/**
+ * @brief Handles at most 3 digit long number
+ */
+unsigned int Atoi::atoiIp(const std::string &in)
+{
+	unsigned int result = 0;
+	for (std::size_t i = 0; i < 3 && i < in.length(); i++)
+		result = (result * 10) + (in[i] - '0');
+	return (result);
+}
+
+/**
+ * @brief Handles at most 2 digit long number
+ */
+unsigned int Atoi::atoiCidr(const std::string &in)
+{
+	unsigned int result = 0;
+	size_t start = 0;
+
+	// If no specified mask -> 32
+	if (in.empty())
+		return (32);
+
+	// Skip leading /
+	if (in[0] == '/')
+		start++;
+
+	// Take at most 2 digits
+	for (size_t i = start; i < start + 2 && i < in.length(); i++)
+		result = (result * 10) + (in[i] - '0');
+	return (result);
 }
 
 /**
