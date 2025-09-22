@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 #include "IpList.h"
 #include "Atoi.h"
+#include "ServerConfig.h"
 
 TEST_CASE("Basic", "[iplist][conversion]")
 {
@@ -82,5 +83,150 @@ TEST_CASE("IP List Parser / Converter with invalid values", "[iplist][invalid][c
 		REQUIRE(!IpList::stringToIp("Alphabet", res, mask));
 		REQUIRE(!IpList::stringToIp("/24", res, mask));
 		REQUIRE(!IpList::stringToIp("/lol", res, mask));
+	}
+}
+
+TEST_CASE("IpList Allowing and Denying", "[iplist][allow][deny]")
+{
+	SECTION("Allowing 3")
+	{
+		IpList l;
+		unsigned int ip;
+		unsigned int mask;
+		std::string sample;
+		
+		sample = "127.0.0.2/24";
+		l.addAllowRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.allowed[0].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.allowed[0].mask == mask);
+
+		sample = "128.0.0.1/24";
+		l.addAllowRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.allowed[1].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.allowed[1].mask == mask);
+
+		sample = "129.0.0.1/24";
+		l.addAllowRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.allowed[2].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.allowed[2].mask == mask);
+
+		REQUIRE(l.allowed.size() == 3);
+	}
+	SECTION("Denying 3")
+	{
+		IpList l;
+		unsigned int ip;
+		unsigned int mask;
+		std::string sample;
+		
+		sample = "127.0.0.2/24";
+		l.addDenyRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.denied[0].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.denied[0].mask == mask);
+
+		sample = "128.0.0.1/24";
+		l.addDenyRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.denied[1].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.denied[1].mask == mask);
+
+		sample = "129.0.0.1/24";
+		l.addDenyRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.denied[2].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.denied[2].mask == mask);
+
+		REQUIRE(l.denied.size() == 3);
+	}
+	SECTION("Mixing both")
+	{
+		IpList l;
+		unsigned int ip;
+		unsigned int mask;
+		std::string sample;
+		
+		sample = "127.0.0.2/24";
+		l.addAllowRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.allowed[0].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.allowed[0].mask == mask);
+
+		sample = "128.0.0.1/24";
+		l.addDenyRule(sample);
+		l.stringToIp(sample, ip, mask);
+		REQUIRE(l.denied[0].base == IpList::getNetwork(ip, mask));
+		REQUIRE(l.denied[0].mask == mask);
+
+		REQUIRE(l.allowed.size() == 1);
+		REQUIRE(l.denied.size() == 1);
+	}
+}
+
+TEST_CASE("IpList with ServerConfig", "[ServerConfig][iplist]")
+{
+	SECTION("Allowing")
+	{
+		ServerConfig cfg;
+		unsigned int ip;
+		unsigned int mask;
+		unsigned int netAdr;
+
+		std::string sample = "127.0.0.42/13";
+		cfg.parseString(std::string("allowIp { ") + sample + std::string(" }"));
+		IpList::stringToIp(sample, ip, mask);
+		netAdr = IpList::getNetwork(ip, mask);
+		REQUIRE(cfg.ip_list.allowed[0].base == netAdr);
+		REQUIRE(cfg.ip_list.allowed[0].mask == mask);
+	}
+	SECTION("Denying")
+	{
+		ServerConfig cfg;
+		unsigned int ip;
+		unsigned int mask;
+		unsigned int netAdr;
+
+		std::string sample = "122.0.0.42/13";
+		cfg.parseString(std::string("denyIp { ") + sample + std::string(" }"));
+		IpList::stringToIp(sample, ip, mask);
+		netAdr = IpList::getNetwork(ip, mask);
+		REQUIRE(cfg.ip_list.denied[0].base == netAdr);
+		REQUIRE(cfg.ip_list.denied[0].mask == mask);
+	}
+	SECTION("Default IP Behaviour allow")
+	{
+		ServerConfig cfg;
+		unsigned int ip;
+		unsigned int mask;
+		unsigned int netAdr;
+
+		std::string sample = "defaultAllowIp true ;";
+		cfg.parseString(sample);
+		REQUIRE(cfg.ip_list.defAllow == true);
+	}
+	SECTION("Default IP Behaviour deny")
+	{
+		ServerConfig cfg;
+		unsigned int ip;
+		unsigned int mask;
+		unsigned int netAdr;
+
+		std::string sample = "defaultAllowIp false ;";
+		cfg.parseString(sample);
+		REQUIRE(cfg.ip_list.defAllow == false);
+	}
+	SECTION("Default IP Behaviour wildcard")
+	{
+		ServerConfig cfg;
+		unsigned int ip;
+		unsigned int mask;
+		unsigned int netAdr;
+
+		std::string sample = "defaultAllowIp banananana ;";
+		cfg.parseString(sample);
+		REQUIRE(cfg.ip_list.defAllow == false);
 	}
 }

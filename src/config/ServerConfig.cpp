@@ -50,7 +50,7 @@ static void validateErrorStatusOrThrow(const std::string &raw)
 // ---------- ServerConfig impl ----------
 
 ServerConfig::ServerConfig()
-	: _servers(), session_enabled(false), session_cookie_name(), session_max_age(0), session_secure(false), session_http_only(false), session_same_site(), mime_mapping(), cgi_defaults()
+	: _servers(), session_enabled(false), session_cookie_name(), session_max_age(0), session_secure(false), session_http_only(false), session_same_site(), mime_mapping(), cgi_defaults(), ip_list()
 {
 }
 
