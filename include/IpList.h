@@ -10,9 +10,18 @@ Date: 22/09/2025
 
 # include <string>
 # include <vector>
+# include <unistd.h>
+# include <sstream>
+# include <stdlib.h>
+# include <fcntl.h>
+# include <sys/stat.h>
+# include <netinet/in.h>
+# include <sys/socket.h>
 # include "Atoi.h"
+# include "HttpResponse.h"
+# include "ETagUtil.h"
 
-#include <iostream>
+
 
 /**
  * A specific Rule for allowed Ips
@@ -63,6 +72,8 @@ class IpList
 		 */
 		bool checkIp(const std::string &source) const;
 
+		static std::string getIpFromSocket(struct sockaddr_storage *source);
+
 		/**
 		 * @brief Extracts IP adress and Subnet Mask from given Ip string
 		 * @param source String containing IP adress, optionally with CIDR ("127.0.0.2/24")
@@ -75,6 +86,7 @@ class IpList
 		 * If no CIDR notation is given, it will be assumed to be /32
 		 */
 		static bool stringToIp(const std::string &source, unsigned int &ip, unsigned int &mask);
+
 		/**
 		 * @brief Converts the given IP Adress and Subnet Mask into its Network Adress
 		 * @param ip Ip adress as u int, prefferably from stringToIp
@@ -82,6 +94,8 @@ class IpList
 		 * @returns Network Adress as uint
 		 */
 		static unsigned int getNetwork(unsigned int ip, unsigned int mask);
+
+		static std::string ipDeniedResponse(void);
 };
 
 #endif // IPLIST_H

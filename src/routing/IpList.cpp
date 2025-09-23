@@ -21,6 +21,34 @@ unsigned int cidrToMask(unsigned int cidr)
 	return (current);
 }
 
+static bool readWholeFile(const std::string &path, std::vector<char> &out)
+{
+	int fd = ::open(path.c_str(), O_RDONLY);
+	if (fd < 0)
+		return false;
+	char buf[8192];
+	ssize_t n;
+	while ((n = ::read(fd, buf, sizeof(buf))) > 0)
+		out.insert(out.end(), buf, buf + n);
+	int saved = errno;
+	::close(fd);
+	return (n >= 0) || (saved == 0);
+}
+
+std::string fallback403(void)
+{
+	HttpResponse res;
+	std::ostringstream out;
+
+	res.setStatus(403);
+	res.reason = "Forbidden";
+	res.headers.set(HDR_CONTENT_LENGTH, "0");
+	res.headers.set(HDR_CONTENT_TYPE, "text/plain");
+	res.headers.set(HDR_CONNECTION, "close");
+	out << res;
+	return (out.str());
+}
+
 IpList::IpList(void): allowed(), denied(), defAllow(true)
 {
 }
@@ -35,24 +63,22 @@ bool IpList::checkIp(const std::string &source) const
 {
 	unsigned int ip;
 	unsigned int mask;
-	unsigned int netAdr;
 	size_t maxLoop = allowed.size();
 
 	if (!IpList::stringToIp(source, ip, mask))
 		return (false);
-	netAdr = IpList::getNetwork(ip, mask);
 
 	// Check if its allowed
 	for (size_t i = 0; i < maxLoop; i++)
 	{
-		if (allowed[i].base == netAdr && allowed[i].mask == mask)
+		if ((ip & allowed[i].mask) == allowed[i].base)
 			return (true);
 	}
 
 	// If not allowed, check if forbidden
 	for (size_t i = 0; i < maxLoop; i++)
 	{
-		if (denied[i].base == netAdr && denied[i].mask == mask)
+		if ((ip & denied[i].mask) == denied[i].base)
 			return (false);
 	}
 
@@ -190,4 +216,59 @@ bool IpList::stringToIp(const std::string &source, unsigned int &ip, unsigned in
 unsigned int IpList::getNetwork(unsigned int ip, unsigned int mask)
 {
 	return (ip & mask);
+}
+
+std::string IpList::getIpFromSocket(struct sockaddr_storage *source)
+{
+	// Turn storage into usable data struct (safe)
+	struct sockaddr_in *in_adr = (struct sockaddr_in *)source;
+
+	// Get stored Ip as unsigned int (4 octets), but in inverted order
+	unsigned int un_int = (unsigned int)in_adr->sin_addr.s_addr;
+
+	// Convert to char *, so we can iterate through the octets
+	unsigned char *u_char = (unsigned char *)&un_int;
+
+	// Iterate through, reversing the order of octects through stack operation on stream
+	std::ostringstream out;
+	out << (int)u_char[0] << "." << (int)u_char[1] << "." << (int)u_char[2] << "." << (int)u_char[3];
+	return (out.str());
+}
+
+std::string IpList::ipDeniedResponse(void)
+{
+	HttpResponse res;
+	std::ostringstream out;
+
+	// Get error file path
+	char *c_path = getcwd(NULL, 0);
+	std::string path = "/";
+	if (c_path)
+	{
+		path = std::string(c_path) + std::string("/www/errors/403.html");
+		free(c_path);
+	}
+
+	// Check the error file
+	struct stat st;
+	if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+		return (fallback403());
+	
+	// Read file into vector
+	std::vector<char> file;
+	if (!readWholeFile(path, file))
+		return (fallback403());
+
+	res.setStatus(HTTP_FORBIDDEN);
+	res.headers.set(HDR_CONNECTION, "close");
+	res.headers.set(HDR_ETAG, ETagUtil::generate(path.c_str()));
+	res.body.clear();
+	res.body.assign(file.begin(), file.end());
+	res.headers.set(HDR_CONTENT_TYPE, "text/html");
+	std::ostringstream cl;
+	cl << static_cast<unsigned long>(file.size());
+	res.headers.set(HDR_CONTENT_LENGTH, cl.str());
+	res.bodyLength = file.size();
+	out << res;
+	return (out.str());
 }
