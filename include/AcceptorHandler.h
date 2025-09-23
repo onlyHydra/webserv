@@ -17,6 +17,7 @@ class AcceptorHandler : public EventLoop::Handler {
 			struct timeval tv; gettimeofday(&tv, 0);
 			return (unsigned long long)tv.tv_sec * 1000ULL + (unsigned long long)tv.tv_usec / 1000ULL;
 		}
+
 	public:
 		AcceptorHandler(EventLoop& loop, Server& srv, Listener* L)
 		: eventLoop(loop), _srv(srv), listener(L) {}
@@ -56,6 +57,7 @@ class AcceptorHandler : public EventLoop::Handler {
 						close(cfd);
 						return ;
 					}
+
 					// register client handler
 					ClientConnection* c = new ClientConnection(cfd,&_srv, nowMs());
 					ClientHandler *h = new ClientHandler(eventLoop,c);

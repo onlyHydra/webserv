@@ -137,7 +137,6 @@ class ClientConnection
 		unsigned long long now_cached_ms;
 		bool ready_to_close;
 		std::size_t fixed_body_target_;  
-		std::string client_ip;
 
 		size_t        body_expected_;     // from Content-Length
 		size_t        body_received_;     // progresses to body_expected_
