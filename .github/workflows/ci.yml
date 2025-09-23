@@ -25,4 +25,4 @@ jobs:
       - name: Build tests
         run: make test
       - name: Run tests
-        run: ./test_webserv
+        run: make test-fast
