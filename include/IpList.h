@@ -21,8 +21,6 @@ Date: 22/09/2025
 # include "HttpResponse.h"
 # include "ETagUtil.h"
 
-
-
 /**
  * A specific Rule for allowed Ips
  * 127.0.0.1 -> 
