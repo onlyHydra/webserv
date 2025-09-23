@@ -18,17 +18,17 @@
 class ChunkedReader : public IBodyReader
 {
 public:
-	ChunkedReader(std::vector<char> &mem_body,
+	ChunkedReader(std::vector<char>& mem_body,
 				std::size_t spill_threshold,
-				const std::string &tmp_dir);
+				const std::string& tmp_dir);
 	~ChunkedReader();
 
 	// Incrementally consume bytes from caller buffer.
-	std::size_t consume(const char *p, std::size_t n);
+	std::size_t consume(const char* p, std::size_t n);
 
 	// IBodyReader API
 	bool complete() const { return st_ == S_DONE; }
-	std::size_t bytes_received() const { return total_; }
+	std::size_t bytes_received() const { return bytes_received_; }
 
 	// Storage queries
 	bool        isBodyOnDisk() const { return on_disk_; }
@@ -38,28 +38,27 @@ public:
 	// Driver-facing disk flushing (bounded, non-blocking)
 	std::size_t flush_to_disk(std::size_t max_bytes);
 
-	// Optional helpers
+	// Pending buffer helpers
 	std::size_t pending_size() const { return pending_.size() - pending_off_; }
 	const char* pending_data() const {
 		return pending_size() ? &pending_[0] + pending_off_ : 0;
 	}
 	void drop_pending(std::size_t n);
 
-	// --- NEW: runtime size cap enforcement ---
+	// Runtime size cap enforcement
 	void set_hard_limit(std::size_t cap) { hard_limit_ = cap; }
 	bool over_limit() const { return over_limit_; }
 
 private:
-	// Internal helpers implemented in .cpp
+	// Internal helpers
 	bool ensure_spill_file();
-	bool write_payload(const char *p, std::size_t n);
+	bool write_payload(const char* p, std::size_t n);
 	bool parse_size_line();
 	bool parse_trailers();
 
 private:
-	// Parser states observed in implementation
-	enum State
-	{
+	// Parser states
+	enum State {
 		S_READING_SIZE,
 		S_READING_DATA,
 		S_EXPECTING_CRLF,
@@ -76,7 +75,7 @@ private:
 	// Storage policy
 	std::size_t        spill_threshold_;
 	std::string        tmp_dir_;
-	std::vector<char> &mem_;
+	std::vector<char>& mem_;
 
 	// Spill-to-disk bookkeeping
 	bool          on_disk_;
@@ -86,14 +85,14 @@ private:
 	// Parsed trailers (opaque store)
 	std::string   trailers_;
 
-	// Pending bytes to flush to disk (for on-disk mode)
+	// Pending bytes to flush to disk
 	std::vector<char> pending_;
 	std::size_t       pending_off_;
 
-	// --- NEW: runtime cap bookkeeping ---
-	std::size_t   hard_limit_;   // 0 = unlimited
+	// Runtime cap bookkeeping
+	std::size_t   hard_limit_;    // 0 = unlimited
 	bool          over_limit_;
+	std::size_t   bytes_received_;
 };
 
 #endif // CHUNKEDREADER_H
-
