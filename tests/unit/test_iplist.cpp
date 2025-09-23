@@ -3,7 +3,7 @@
 #include "Atoi.h"
 #include "ServerConfig.h"
 
-TEST_CASE("Basic", "[iplist][conversion]")
+TEST_CASE("IP List Conversions", "[iplist][conversion]")
 {
 	IpList l;
 	unsigned int res;
@@ -166,6 +166,50 @@ TEST_CASE("IpList Allowing and Denying", "[iplist][allow][deny]")
 	}
 }
 
+TEST_CASE("IP Ranges", "[iplist][allow][deny][range]")
+{
+	SECTION("Simple allowance")
+	{
+		IpList l;
+
+		l.defAllow = false;
+		// This Rule should allow .0 - .31
+		l.addAllowRule("127.0.0.0/27");
+		// This Rule should allow .64 - .95
+		l.addAllowRule("127.0.0.64/27");
+		REQUIRE(l.checkIp("127.0.0.0") == true);
+		REQUIRE(l.checkIp("127.0.0.1") == true);
+		REQUIRE(l.checkIp("127.0.0.2") == true);
+		REQUIRE(l.checkIp("127.0.0.31") == true);
+
+		REQUIRE(l.checkIp("127.0.0.32") == false);
+		REQUIRE(l.checkIp("127.0.0.63") == false);
+
+		REQUIRE(l.checkIp("127.0.0.64") == true);
+		REQUIRE(l.checkIp("127.0.0.95") == true);
+	}
+	SECTION("Make sure CIDR of given is ignored")
+	{
+		IpList l;
+
+		l.defAllow = false;
+		l.addAllowRule("127.0.0.42/32");
+		l.checkIp("127.0.0.42/24");
+	}
+	SECTION("Exact IPs")
+	{
+		IpList l;
+
+		l.defAllow = false;
+		l.addAllowRule("127.0.0.42");
+		l.addAllowRule("127.0.1.42/32");
+		l.checkIp("127.0.0.42");
+		l.checkIp("127.0.1.42");
+		l.checkIp("127.0.0.42/32");
+		l.checkIp("127.0.1.42/32");
+	}
+}
+
 TEST_CASE("IpList with ServerConfig", "[ServerConfig][iplist]")
 {
 	SECTION("Allowing")
@@ -228,5 +272,50 @@ TEST_CASE("IpList with ServerConfig", "[ServerConfig][iplist]")
 		std::string sample = "defaultAllowIp banananana ;";
 		cfg.parseString(sample);
 		REQUIRE(cfg.ip_list.defAllow == false);
+	}
+}
+
+TEST_CASE("IpList simulate full execution", "[ServerConfig][iplist]")
+{
+	SECTION("1")
+	{
+		ServerConfig cfg;
+		cfg.parseString("allowIp { 127.0.0.0/24 128.0.0.0/24 } denyIp { 100.100.100.100 } defaultAllowIp false;");
+		{	// Check if parsing into Config worked
+			IpList &l = cfg.ip_list;
+			unsigned int ip;
+			unsigned int mask;
+			unsigned int netAdr;
+			IpList::stringToIp("127.0.0.0/24", ip, mask);
+			netAdr = IpList::getNetwork(ip, mask);
+			REQUIRE(l.allowed[0].base == netAdr);
+			REQUIRE(l.allowed[0].mask == mask);
+			IpList::stringToIp("128.0.0.0/24", ip, mask);
+			netAdr = IpList::getNetwork(ip, mask);
+			REQUIRE(l.allowed[1].base == netAdr);
+			REQUIRE(l.allowed[1].mask == mask);
+			IpList::stringToIp("100.100.100.100", ip, mask);
+			netAdr = IpList::getNetwork(ip, mask);
+			REQUIRE(l.denied[0].base == netAdr);
+			REQUIRE(l.denied[0].mask == mask);
+			REQUIRE(l.defAllow == false);
+		}
+
+		{ // Connect with valid IP
+			struct sockaddr_in si;
+			si.sin_addr.s_addr = 16777343; // the format that our ip will be in
+			struct sockaddr_storage *ss = (struct sockaddr_storage *)&si;
+			std::string ip = IpList::getIpFromSocket(ss);
+			REQUIRE(ip == "127.0.0.1");
+			REQUIRE(cfg.ip_list.checkIp(ip));
+		}
+		{ // Connect with denied IP
+			struct sockaddr_in si;
+			si.sin_addr.s_addr = 126; // the format that our ip will be in
+			struct sockaddr_storage *ss = (struct sockaddr_storage *)&si;
+			std::string ip = IpList::getIpFromSocket(ss);
+			REQUIRE(ip == "126.0.0.0");
+			REQUIRE(!cfg.ip_list.checkIp(ip));
+		}
 	}
 }

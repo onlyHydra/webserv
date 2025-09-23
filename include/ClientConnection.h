@@ -22,7 +22,7 @@ class Server;
 class ClientConnection
 {
 	public:
-		ClientConnection(int fd, Server *s, unsigned long long nowMs, const std::string &ip);
+		ClientConnection(int fd, Server *s, unsigned long long nowMs);
 		~ClientConnection();
 
 		bool beginProxyTunnel(int upstream_fd,

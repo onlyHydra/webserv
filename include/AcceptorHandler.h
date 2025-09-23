@@ -9,8 +9,6 @@
 #include "Server.h"
 #include "IpList.h"
 
-#include <iostream>
-
 class AcceptorHandler : public EventLoop::Handler {
 
 	private:
@@ -49,7 +47,7 @@ class AcceptorHandler : public EventLoop::Handler {
 						::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 					}
 					catch (...) { ::close(cfd); continue; }
-					// Check if IP is allowded
+					// Check if IP is forbidden
 					std::string ip = IpList::getIpFromSocket(&ss);
 					if (!_srv.getConfig().ip_list.checkIp(ip))
 					{
@@ -59,7 +57,7 @@ class AcceptorHandler : public EventLoop::Handler {
 						return ;
 					}
 					// register client handler
-					ClientConnection* c = new ClientConnection(cfd,&_srv, nowMs(), ip);
+					ClientConnection* c = new ClientConnection(cfd,&_srv, nowMs());
 					ClientHandler *h = new ClientHandler(eventLoop,c);
 					_srv.trackHandler(h);
 					eventLoop.addFD(cfd, POLLIN, h);

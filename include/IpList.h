@@ -25,7 +25,9 @@ Date: 22/09/2025
 
 /**
  * A specific Rule for allowed Ips
- * 127.0.0.1 -> base: 127.0.0.1=2130706433 mask: 255.255.255.255=4294967295
+ * 127.0.0.1 -> 
+ * base: 127.0.0.1 = 2130706433 
+ * mask: 255.255.255.255 = 4294967295
  */
 struct IpRule
 {
@@ -33,11 +35,31 @@ struct IpRule
 	unsigned int mask;
 };
 
+/**
+ * Class for handling List of allowed and denied IPs
+ * -------------------------------------------------
+ * ServerConfigs parser calls on addAllowRule() and 
+ * addDenyRule() to set the rules for IPs
+ * -------------------------------------------------
+ * AcceptorHandler gets the newly connecting IP with
+ * getIpFromSocket() and then uses checkIp() to
+ * check if this IP is allowed or not.
+ * If not, then it calls upon ipDeniedResponse() and
+ * sends that data directly to the Client,
+ * then terminating the Connection
+ * -------------------------------------------------
+ * Theese use utility functions to covert the 
+ * required and given data through using 
+ * stringToIp() and getNetwork()
+ */
 class IpList
 {
 	public:
+		// List of allowed IPs (highest precedence)
 		std::vector<IpRule> allowed;
+		// List of denied IPs (lower precedence)
 		std::vector<IpRule> denied;
+		// Wether IPs should by default be allowed (lowest precedence)
 		bool defAllow;
 		
 		IpList(void);
@@ -65,14 +87,30 @@ class IpList
 		bool addDenyRule(const std::string &source);
 
 		/**
+		 * @brief Gets the IP from a sockets adress storage
+		 * @param source Address storage of the target socket
+		 * @returns String consisting of the IP in common format (127.0.0.1)
+		 */
+		static std::string getIpFromSocket(struct sockaddr_storage *source);
+		
+		/**
 		 * @brief Checks if a certain IP is allowed
 		 * @param source Ip Adress + optional CIDR notation
+		 * @note Checks if given IP matches one of the registerd IP ranges by checking against
+		 * the Network Address (using Subnet Mask to ignore Network Bits)
 		 * @note Order of scenarios, first to trigger will be end result: 
 		 * Is allowed -> Is forbidden -> Default
 		 */
 		bool checkIp(const std::string &source) const;
 
-		static std::string getIpFromSocket(struct sockaddr_storage *source);
+		/**
+		 * @brief Gives back serialized Response for rejecting because of denied IP
+		 * @returns Serialized 403 Response
+		 * 
+		 * Tries to use 403 file and return that, and if it cant find or read,
+		 * returns common fallback for 403
+		 */
+		static std::string ipDeniedResponse(void);
 
 		/**
 		 * @brief Extracts IP adress and Subnet Mask from given Ip string
@@ -94,8 +132,6 @@ class IpList
 		 * @returns Network Adress as uint
 		 */
 		static unsigned int getNetwork(unsigned int ip, unsigned int mask);
-
-		static std::string ipDeniedResponse(void);
 };
 
 #endif // IPLIST_H

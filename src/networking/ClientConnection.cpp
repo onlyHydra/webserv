@@ -39,7 +39,7 @@ invariants defined so later phases can safely assume consistent, initialized sta
 
 */
 
-ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs, const std::string &ip)
+ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 	: state(PH_READ_HEADERS),
 	  server(s),
 	  io(fd, 64 * 1024),
@@ -60,8 +60,7 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs, 
 	  flush_no_progress_ticks(0),
 	  now_cached_ms(nowMs),
 	  ready_to_close(false),
-	  fixed_body_target_((std::size_t)-1), // <— add this
-	  client_ip(ip)
+	  fixed_body_target_((std::size_t)-1) // <— add this
 
 {
 	// Wire the loop once
