@@ -50,7 +50,7 @@ static void validateErrorStatusOrThrow(const std::string &raw)
 // ---------- ServerConfig impl ----------
 
 ServerConfig::ServerConfig()
-	: _servers(), session_enabled(false), session_cookie_name(), session_max_age(0), session_secure(false), session_http_only(false), session_same_site(), mime_mapping(), cgi_defaults()
+	: _servers(), session_enabled(false), session_cookie_name(), session_max_age(0), session_secure(false), session_http_only(false), session_same_site(), mime_mapping(), cgi_defaults(), ip_list()
 {
 }
 
@@ -856,6 +856,56 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 			++i;
 			_servers.push_back(vs);
 			continue;
+		}
+
+		// ================= GLOBAL: allowIp { ADDRESS1 ADDRESS2 ... }
+		if (t0 == "allowIp")
+		{
+			if (i + 2 >= N || tok[i + 1] != "{")
+				throw std::runtime_error("allowIp expects: { ADRESS/CIDR ... }");
+			i += 2;
+			while (i < N && tok[i] != "}")
+			{
+				if(!this->ip_list.addAllowRule(tok[i]))
+					throw std::runtime_error(std::string("allowed IP has invalid syntax"));
+				i++;
+			}
+			if (tok[i] != "}")
+				throw std::runtime_error("allowIp expects: { ADRESS/CIDR ... }");
+			i++;
+			continue;
+		}
+
+		// ================= GLOBAL: denyIp { ADDRESS1 ADDRESS2 ... }
+		if (t0 == "denyIp")
+		{
+			if (i + 2 >= N || tok[i + 1] != "{")
+				throw std::runtime_error("denyIp expects: { ADRESS/CIDR ... }");
+			i += 2;
+			while (i < N && tok[i] != "}")
+			{
+				if(!this->ip_list.addDenyRule(tok[i]))
+					throw std::runtime_error(std::string("denied IP has invalid syntax"));
+				i++;
+			}
+			if (tok[i] != "}")
+				throw std::runtime_error("denyIp expects: { ADRESS/CIDR ... }");
+			i++;
+			continue;
+		}
+
+		// ================= GLOBAL: defaultAllowIp true/false ;
+		if (t0 == "defaultAllowIp")
+		{
+			if (i + 2 >= N)
+				throw std::runtime_error("defaultAllowIp expects: true/false/banana ;");
+			i++;
+			if (tok[i] == "true")
+				this->ip_list.defAllow = true;
+			else
+				this->ip_list.defAllow = false;
+			i++;
+			continue ;
 		}
 
 		// tolerate stray semicolons at top level
