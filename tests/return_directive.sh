@@ -143,6 +143,8 @@ echo "================================"
 if [ "$fail" -eq "0" ]; then
 	printf "\033[32m[Summary: $pass passed, $fail failed]\033[0m\n"
 	rm $program_output_file
+	exit 0
 else
 	printf "\033[31m[Summary: $pass passed, $fail failed]\033[0m\n"
+	exit 1
 fi
