@@ -79,3 +79,13 @@ TEST_CASE("ServerConfig parses valid error_page config", "[ServerConfig]") {
 	REQUIRE(vs.error_pages.count(404));
 	REQUIRE(vs.error_pages.at(404) == "/404.html");
 }
+
+TEST_CASE("ServerConfig throws on invalid allowIp", "[ServerConfig][invalid]") {
+    ServerConfig cfg;
+    REQUIRE_THROWS_AS(cfg.parseFile("tests/unit/config/invalid_allowIp.conf"), std::runtime_error);
+}
+
+TEST_CASE("ServerConfig throws on invalid denyIp", "[ServerConfig][invalid]") {
+    ServerConfig cfg;
+    REQUIRE_THROWS_AS(cfg.parseFile("tests/unit/config/invalid_denyIp.conf"), std::runtime_error);
+}

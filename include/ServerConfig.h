@@ -13,6 +13,7 @@ Date: 8/10/2025
 #include <map>
 
 #include "VirtualServer.h"   // VirtualServer + Location/CgiSpec models
+#include "IpList.h"
 
 class ServerConfig
 {
@@ -54,6 +55,8 @@ class ServerConfig
 		std::map<std::string,CgiSpec>      cgi_defaults;
 		// global upstream pools (available by name for all servers)
 		std::map<std::string, UpstreamPool> upstream_pools;
+		// List of allowed and/or forbidden IPs
+		IpList                           ip_list;
 };
 
 #endif // SERVERCONFIG_H

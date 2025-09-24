@@ -162,8 +162,6 @@ std::string CookieJar::serialize(void) const
 	return (out);
 }
 
-#include <iostream>
-
 std::string CookieJar::prepareForCgi(void) const
 {
 	std::string res;
@@ -185,7 +183,6 @@ std::string CookieJar::prepareForCgi(void) const
 		res += "=";
 		res += it->second;
 	}
-	std::cout << "Prepared: " << res << std::endl;
 	return (res);
 }
 
