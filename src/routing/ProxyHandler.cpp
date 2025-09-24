@@ -163,8 +163,10 @@ bool ProxyHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& c
 	// Open non-blocking upstream socket
 	int ufd = connect_nonblock(host, port);
 	if (ufd < 0) {
+	#if defined(DEBUG)
 		std::fprintf(stderr, "[PROXY] connect failed to %s:%s (errno=%d)\n",
 					host.c_str(), port.c_str(), errno);
+#endif
 		res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
 		return true;
 	}

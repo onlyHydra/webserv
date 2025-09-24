@@ -1,333 +1,317 @@
 #include "ChunkedReader.h"
 
-#include <algorithm>
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <sstream>
-#include <iomanip>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <cstdio>
+#include <cstdlib>
 
-
-// ---- small helpers ---------------------------------------------------------
-
-static inline std::size_t min_sz(std::size_t a, std::size_t b) {
-	return a < b ? a : b;
+// ===== small helpers (C++98-safe) ===========================================
+namespace {
+	inline bool is_hex(char c) {
+		return (c >= '0' && c <= '9') ||
+			(c >= 'a' && c <= 'f') ||
+			(c >= 'A' && c <= 'F');
+	}
+	inline unsigned hex_val(char c) {
+		if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
+		if (c >= 'a' && c <= 'f') return 10u + static_cast<unsigned>(c - 'a');
+		return 10u + static_cast<unsigned>(c - 'A');
+	}
 }
 
-
-// ---- ctor / dtor -----------------------------------------------------------
+// ===== ctor / dtor ===========================================================
 
 ChunkedReader::ChunkedReader(std::vector<char> &mem_body,
 							std::size_t spill_threshold,
 							const std::string &tmp_dir)
-: st_(S_READING_SIZE)
-, total_(0)
-, chunk_rem_(0)
-, linebuf_()
-, spill_threshold_(spill_threshold)
-, tmp_dir_(tmp_dir)
-, mem_(mem_body)
-, on_disk_(false)
-, fd_(-1)
-, path_()
-, trailers_()
-, pending_()
-, pending_off_(0)
-, hard_limit_(0)
-, over_limit_(false)
+: st_(S_READING_SIZE),
+total_(0),
+chunk_rem_(0),
+linebuf_(),
+spill_threshold_(spill_threshold),
+tmp_dir_(tmp_dir),
+mem_(mem_body),
+on_disk_(false),
+fd_(-1),
+path_(),
+trailers_(),
+pending_(),
+pending_off_(0),
+hard_limit_(0),
+over_limit_(false),
+bytes_received_(0)
 {
-	// pre-reserve a little for size lines/trailers
-	linebuf_.reserve(64);
-	pending_.reserve(8192);
+	linebuf_.clear();
+	trailers_.clear();
+	pending_.clear();
 }
 
 ChunkedReader::~ChunkedReader() {
-	if (fd_ >= 0) {
-		::close(fd_);
-		fd_ = -1;
-	}
-	// do not unlink path_: the driver owns the produced file if any
+	if (fd_ >= 0) ::close(fd_);
+	if (on_disk_ && !path_.empty()) ::unlink(path_.c_str());
 }
 
-// ---- disk helpers ----------------------------------------------------------
+// ===== internal I/O buffers ==================================================
+
+void ChunkedReader::drop_pending(std::size_t n) {
+	if (n == 0) return;
+	if (n > pending_size()) n = pending_size();
+	pending_off_ += n;
+
+	// compact occasionally to avoid growth
+	if (pending_off_ > 65536 && pending_off_ * 2 > pending_.size()) {
+		std::vector<char> tmp(pending_.begin() + pending_off_, pending_.end());
+		pending_.swap(tmp);
+		pending_off_ = 0;
+	}
+}
 
 bool ChunkedReader::ensure_spill_file() {
-	if (on_disk_) return true;
+	if (on_disk_ && fd_ >= 0) return true;
 
-	// Build mkstemp template: <tmp_dir_>/chunk-XXXXXX
-	std::string templ = tmp_dir_;
-	if (!templ.empty() && templ[templ.size() - 1] != '/')
-		templ += '/';
-	templ += "chunk-XXXXXX";
+	// make "tmp_dir_/chunk-XXXXXX"
+	std::string tpl = tmp_dir_;
+	if (!tpl.empty() && tpl[tpl.size() - 1] != '/') tpl += "/";
+	tpl += "chunk-XXXXXX";
 
-	// mkstemp modifies the string in place
-	std::vector<char> buf(templ.begin(), templ.end());
-	buf.push_back('\0');
+	std::vector<char> c(tpl.begin(), tpl.end());
+	c.push_back('\0');
 
-	int fd = ::mkstemp(&buf[0]);
-	if (fd < 0) {
-		st_ = S_ERROR;
-		return false;
+	int fd = ::mkstemp(&c[0]);
+	if (fd < 0) return false;
+
+	path_.assign(&c[0]);
+	fd_ = fd;
+	on_disk_ = true;
+	return true;
+}
+
+bool ChunkedReader::write_payload(const char *p, std::size_t n) {
+	// track decoded size regardless of storage
+	total_          += n;
+	bytes_received_ += n;
+
+	if (hard_limit_ && bytes_received_ > hard_limit_) {
+		over_limit_ = true; // caller can turn this into 413
 	}
 
-	// Best effort: user/group read-write
-	::fchmod(fd, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+	if (!on_disk_) {
+		// Decide to spill?
+		if (spill_threshold_ == 0 || (mem_.size() + n) > spill_threshold_) {
+			// move current mem_ to pending_ then switch to file
+			if (!mem_.empty()) {
+				std::size_t old = pending_.size();
+				pending_.resize(old + mem_.size());
+				std::memcpy(&pending_[0] + old, &mem_[0], mem_.size());
+				mem_.clear();
+				pending_off_ = 0;
+			}
+			if (!ensure_spill_file()) return false; // backpressure; caller may 507 later
+		}
+	}
 
-	fd_ = fd;
-	path_.assign(&buf[0]);
-	on_disk_ = true;
-	pending_.clear();
-	pending_off_ = 0;
-	return true;
+	if (on_disk_) {
+		std::size_t old = pending_.size();
+		pending_.resize(old + n);
+		std::memcpy(&pending_[0] + old, p, n);
+		return true; // flushing is separate
+	} else {
+		std::size_t old = mem_.size();
+		mem_.resize(old + n);
+		std::memcpy(&mem_[0] + old, p, n);
+		return true;
+	}
 }
 
 std::size_t ChunkedReader::flush_to_disk(std::size_t max_bytes) {
 	if (!on_disk_ || fd_ < 0) return 0;
-	std::size_t written_total = 0;
+	std::size_t avail = pending_size();
+	if (avail == 0) return 0;
 
-	while (pending_off_ < pending_.size() && written_total < max_bytes) {
-		std::size_t avail = pending_.size() - pending_off_;
-		std::size_t to_write = min_sz(avail, max_bytes - written_total);
+	if (max_bytes == 0 || max_bytes > avail) max_bytes = avail;
 
-		ssize_t w = ::write(fd_, &pending_[0] + pending_off_, to_write);
-		if (w < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				break; // try later
-			// hard IO error; mark reader error
-			st_ = S_ERROR;
-			break;
-		}
-		if (w == 0) break; // shouldn't happen; avoid tight loop
-		pending_off_ += static_cast<std::size_t>(w);
-		written_total += static_cast<std::size_t>(w);
+	ssize_t wr = ::write(fd_, pending_data(), (int)max_bytes);
+	if (wr <= 0) {
+		// EAGAIN/EINTR => just try again later; other errors -> keep returning 0
+		return 0;
 	}
-
-	// Drop fully-flushed prefix
-	if (pending_off_ && pending_off_ == pending_.size()) {
-		pending_.clear();
-		pending_off_ = 0;
-	}
-	return written_total;
+	drop_pending((std::size_t)wr);
+	return (std::size_t)wr;
 }
 
-void ChunkedReader::drop_pending(std::size_t n) {
-	// helper if your driver wants to forcibly drop staged bytes;
-	// generally not needed because flush_to_disk advances offsets.
-	n = min_sz(n, pending_size());
-	pending_off_ += n;
-	if (pending_off_ == pending_.size()) {
-		pending_off_ = 0;
-		pending_.clear();
-	}
-}
-
-// ---- parsing helpers -------------------------------------------------------
+// ===== parsing helpers =======================================================
 
 bool ChunkedReader::parse_size_line() {
-	// 'linebuf_' currently holds the line (without CRLF).
-	// Format: <hex> [; extensions...]
-	// We stop at ';' if present.
-	std::size_t i = 0;
-	// skip leading spaces (robustness)
-	while (i < linebuf_.size() && (linebuf_[i] == ' ' || linebuf_[i] == '\t'))
-		++i;
+	// need CRLF at the end
+	if (linebuf_.size() < 2) return false;
+	const std::size_t L = linebuf_.size();
+	if (linebuf_[L - 2] != '\r' || linebuf_[L - 1] != '\n') return false;
 
-	// read hex number
-	std::size_t value = 0;
-	bool saw_digit = false;
-	for (; i < linebuf_.size(); ++i) {
-		const char c = linebuf_[i];
-		if (c == ';') break;
-		if (c == ' ' || c == '\t') break; // allow spaces before extensions
-		unsigned v;
-		if (c >= '0' && c <= '9')       { v = static_cast<unsigned>(c - '0'); }
-		else if (c >= 'a' && c <= 'f')  { v = 10u + static_cast<unsigned>(c - 'a'); }
-		else if (c >= 'A' && c <= 'F')  { v = 10u + static_cast<unsigned>(c - 'A'); }
-		else { return false; }
-		saw_digit = true;
-		// guard overflow: clamp if it would wrap (extremely unlikely here)
-		if (value > (static_cast<std::size_t>(-1) >> 4))
-			value = static_cast<std::size_t>(-1);
-		else
-			value = (value << 4) | v;
-	}
-	if (!saw_digit) return false;
+	// copy without CRLF
+	std::string line = linebuf_.substr(0, L - 2);
+	linebuf_.clear();
 
-	chunk_rem_ = value;
-	if (chunk_rem_ == 0) {
-		st_ = S_TRAILERS;
-	} else {
-		st_ = S_READING_DATA;
+	// strip optional chunk extensions (from first ';')
+	std::string::size_type sc = line.find(';');
+	if (sc != std::string::npos) line.erase(sc);
+
+	// trim optional whitespace around the size
+	std::size_t b = 0;
+	while (b < line.size() && (line[b] == ' ' || line[b] == '\t')) ++b;
+	std::size_t e = line.size();
+	while (e > b && (line[e - 1] == ' ' || line[e - 1] == '\t')) --e;
+	if (b >= e) return false;
+
+	// hex parse into size_t (via unsigned long)
+	unsigned long val = 0;
+	bool any = false;
+	for (std::size_t i = b; i < e; ++i) {
+		const char c = line[i];
+		if (!is_hex(c)) return false;
+		val = (val << 4) + hex_val(c);
+		any = true;
 	}
+	if (!any) return false;
+
+	chunk_rem_ = static_cast<std::size_t>(val);
 	return true;
 }
 
 bool ChunkedReader::parse_trailers() {
-	// We’re called when we have an empty line buffered (CRLF already seen),
-	// but to be robust we’ll keep using linebuf_ to collect lines until we
-	// hit an empty line.
-	// Nothing to do here; trailers are accepted but ignored (stored in trailers_).
-	// The actual scanning is done in consume().
-	return true;
+	// read CRLF-terminated lines until an empty line
+	for (;;) {
+		std::string::size_type eol = linebuf_.find("\r\n");
+		if (eol == std::string::npos) return false; // need more data
+		if (eol == 0) {
+			// end of trailers
+			linebuf_.erase(0, 2);
+			st_ = S_DONE;
+			return true;
+		}
+		// keep trailers if desired; otherwise could drop them
+		trailers_.append(linebuf_, 0, eol + 2);
+		linebuf_.erase(0, eol + 2);
+	}
 }
 
-// ---- storage (mem vs disk) -------------------------------------------------
+// ===== main state machine ====================================================
 
-// ChunkedReader.cpp
-#include <cstring>  // for std::memcpy
-
-bool ChunkedReader::write_payload(const char *p, std::size_t n) {
-	// Hard-limit enforcement
-	if (hard_limit_ && total_ >= hard_limit_) {
-		over_limit_ = true;
-		st_ = S_ERROR;
-		return false;
-	}
-	if (hard_limit_) {
-		const std::size_t room = hard_limit_ - total_;
-		if (n > room) {
-			n = room;
-			over_limit_ = true;
-		}
-	}
-
-	//  Use memory only if threshold > 0 AND we would not exceed it.
-	if (!on_disk_ && (spill_threshold_ > 0) && (total_ + n) <= spill_threshold_) {
-		mem_.insert(mem_.end(), p, p + n);
-	} else {
-		if (!on_disk_) {
-			if (!ensure_spill_file()) return false;   // st_ set to S_ERROR on failure
-		}
-		const std::size_t old_size = pending_.size();
-		pending_.resize(old_size + n);
-		std::memcpy(&pending_[0] + old_size, p, n);
-	}
-
-	total_ += n;
-
-	if (hard_limit_ && total_ == hard_limit_) {
-		over_limit_ = true;
-		// still return true: the bytes we accepted are valid, driver will stop
-	}
-	return true;
-}
-
-
-
-// ---- main state machine ----------------------------------------------------
-
-std::size_t ChunkedReader::consume(const char* p, std::size_t n)
-{
+std::size_t ChunkedReader::consume(const char *p, std::size_t n) {
 	if (!p || n == 0) return 0;
-	if (st_ == S_ERROR || st_ == S_DONE) return 0;
+	if (st_ == S_DONE)  return n;   // upper layers may discard
+	if (st_ == S_ERROR) return 0;
 
 	std::size_t taken = 0;
 
 	while (taken < n) {
 		switch (st_) {
 		case S_READING_SIZE: {
-			// Look for '\n' to finish the size line; if not present,
-			// buffer everything we got and report it as consumed.
-			const char* nl = (const char*)std::memchr(p + taken, '\n', n - taken);
-			if (!nl) {
-				linebuf_.append(p + taken, n - taken);
+			const char *base  = p + taken;
+			std::size_t avail = n - taken;
+
+			const void *nlv = std::memchr(base, '\n', avail);
+			if (!nlv) {
+				// no LF in this chunk; buffer and report progress
+				linebuf_.append(base, avail);
 				taken = n;
-				return taken; // consumed all input this call
+				return taken;
 			}
 
-			// We have a full line segment ending at nl (inclusive).
-			const std::size_t seg = (std::size_t)(nl - (p + taken)) + 1;
-			linebuf_.append(p + taken, seg);
+			const char *nl = static_cast<const char*>(nlv);
+			std::size_t seg = static_cast<std::size_t>(nl - base) + 1; // include LF
+			linebuf_.append(base, seg);
 			taken += seg;
 
-			// Expect CRLF in the assembled line
-			if (linebuf_.size() < 2 ||
-				linebuf_[linebuf_.size() - 2] != '\r' ||
-				linebuf_[linebuf_.size() - 1] != '\n') {
+			if (!parse_size_line()) {
+				// malformed size line; consume what we saw to avoid spin and error out
 				st_ = S_ERROR;
 				return taken;
 			}
 
-			// Strip CRLF and parse hex size (ignore optional ";ext")
-			linebuf_.resize(linebuf_.size() - 2);
-			std::string::size_type semi = linebuf_.find(';');
-			const std::string hex = (semi == std::string::npos)
-				? linebuf_
-				: linebuf_.substr(0, semi);
-
-			std::istringstream is(hex);
-			std::size_t sz = 0;
-			is >> std::hex >> sz;
-			if (!is) {
-				st_ = S_ERROR;
-				return taken;
-			}
-
-			chunk_rem_ = sz;
-			linebuf_.clear();
-
-			if (chunk_rem_ == 0) {
-				// Final chunk — next come trailers (possibly empty)
-				st_ = S_TRAILERS;
-			} else {
-				st_ = S_READING_DATA;
-			}
+			st_ = (chunk_rem_ == 0) ? S_TRAILERS : S_READING_DATA;
 			break;
 		}
 
 		case S_READING_DATA: {
-			// Take as much as we can for this chunk’s data
 			std::size_t want = n - taken;
 			if (want > chunk_rem_) want = chunk_rem_;
-			if (want == 0) return taken;
 
-			// Stage payload (mem or pending_ if on-disk)
-			// Note: write_payload() may return false to hint “don’t read more”,
-			// but we *did* accept 'want' bytes, so we still advance 'taken'.
-			(void)write_payload(p + taken, want);
-			taken     += want;
+			if (want == 0) {
+				// finished the current chunk payload, expect CRLF next
+				st_ = S_EXPECTING_CRLF;
+				continue;
+			}
+
+			// write (to memory or pending spill); always count bytes to ensure progress
+			if (!write_payload(p + taken, want)) {
+				// backpressure path — still advance to avoid spin; caller can retry later
+				taken += want;
+				return taken;
+			}
+
+			taken      += want;
 			chunk_rem_ -= want;
 
-			if (chunk_rem_ == 0) {
-				st_ = S_EXPECTING_CRLF; // expect data CRLF
-			}
+			if (chunk_rem_ == 0)
+				st_ = S_EXPECTING_CRLF;
+
 			break;
 		}
 
 		case S_EXPECTING_CRLF: {
-			// After data chunk, we must see "\r\n".
-			const std::size_t rem = n - taken;
-
+			// must see "\r\n" (or at least '\n' leniently) after a data chunk
+			std::size_t rem = n - taken;
 			if (rem == 0) return taken;
 
-			if (rem == 1) {
-				// If it's just '\r', buffer it and return 1 consumed
-				if (p[taken] == '\r') {
-					linebuf_.push_back('\r');
-					++taken;
-					return taken; // consume what we got; finish on next call
-				}
-				st_ = S_ERROR;
-				return taken;
-			}
-
-			// We have at least 2 bytes available
 			if (linebuf_.empty()) {
-				if (p[taken] == '\r' && p[taken + 1] == '\n') {
-					taken += 2;
-					st_ = S_READING_SIZE;
+				if (rem >= 2) {
+					const char c0 = p[taken];
+					const char c1 = p[taken + 1];
+					if (c0 == '\r' && c1 == '\n') {
+						taken += 2;
+						st_ = S_READING_SIZE;
+					} else if (c0 == '\n') {
+						// tolerate bare LF
+						++taken;
+						st_ = S_READING_SIZE;
+					} else {
+						// consume a byte to break loops, then error
+						++taken;
+						st_ = S_ERROR;
+					}
 				} else {
-					st_ = S_ERROR;
+					// only one byte available
+					const char c0 = p[taken];
+					if (c0 == '\r') {
+						linebuf_.push_back('\r');
+						++taken;
+						return taken; // need the following '\n'
+					}
+					if (c0 == '\n') {
+						++taken;
+						st_ = S_READING_SIZE;
+					} else {
+						++taken;
+						st_ = S_ERROR;
+					}
 				}
 			} else {
-				// We buffered a lone '\r' previously; expect '\n' now
-				if (linebuf_.size() == 1 && linebuf_[0] == '\r' && p[taken] == '\n') {
-					linebuf_.clear();
-					++taken;
-					st_ = S_READING_SIZE;
+				// we had a buffered '\r'
+				if (linebuf_.size() == 1 && linebuf_[0] == '\r') {
+					if (p[taken] == '\n') {
+						++taken;
+						linebuf_.clear();
+						st_ = S_READING_SIZE;
+					} else {
+						++taken;         // consume to avoid spin
+						linebuf_.clear();
+						st_ = S_ERROR;
+					}
 				} else {
 					st_ = S_ERROR;
 				}
@@ -336,19 +320,25 @@ std::size_t ChunkedReader::consume(const char* p, std::size_t n)
 		}
 
 		case S_TRAILERS: {
-			// Read until CRLFCRLF. We ignore actual trailer contents.
-			// Keep everything in linebuf_ until we see the terminator.
-			const std::size_t rem = n - taken;
-			linebuf_.append(p + taken, rem);
+			// Buffer everything we got and peel CRLF-terminated lines
+			linebuf_.append(p + taken, n - taken);
 			taken = n;
 
-			const std::string::size_type pos = linebuf_.find("\r\n\r\n");
-			if (pos != std::string::npos) {
-				// Done; we can discard trailers
-				st_ = S_DONE;
-				// (Optionally keep trailers_ if you want them)
+			for (;;) {
+				std::string::size_type eol = linebuf_.find("\r\n");
+				if (eol == std::string::npos) break;
+
+				if (eol == 0) {
+					// empty line => end of trailers
+					linebuf_.erase(0, 2);
+					st_ = S_DONE;
+					break;
+				}
+				// keep trailers if you want them later
+				trailers_.append(linebuf_, 0, eol + 2);
+				linebuf_.erase(0, eol + 2);
 			}
-			return taken; // we always consume what we received here
+			return taken;
 		}
 
 		case S_DONE:

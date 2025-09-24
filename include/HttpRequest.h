@@ -162,6 +162,7 @@ class HttpRequest
 
 	public:
 		CookieJar cookies;
+		
 		HttpRequest();
 
 		~HttpRequest();
@@ -322,6 +323,7 @@ class HttpRequest
 		size_t getBytesHandledLast(void) const;
 
 		void setKeepAlive(bool state);
+		std::vector<char>& bodyRef() { return body; }   
 
 		void reset();
 };

@@ -16,13 +16,19 @@ CASES="cgi_env_cookies.sh
 run_all.sh
 stress_10k.py
 chunked_multipart.py
+chunked_debug_verbose.py
+chunked_upload_test.py
+probe_connect.py
 return_directive.sh"
 
 # Matching expected outputs (separate multiple expected strings with | )
 EXPECTED="Summary: 3 passed, 0 failed
 Smoke suite completed.
 413
-Files uploaded successfully
+Status: 201
+HTTP/1.1 201 Created
+Status: 409
+HTTP/1.1 200 OK
 [Summary: 8 passed, 0 failed]"
 
 SUCCESS=0
@@ -91,6 +97,7 @@ for SCRIPT in $CASES; do
 	else
 		fail "FAIL: $SCRIPT"
 		FAIL=$((FAIL + 1))
+		echo "Failure [$OUTPUT]"
 	fi
 
 	idx=$((idx + 1))
