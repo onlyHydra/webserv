@@ -784,8 +784,12 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 						if (lkw == "return")
 						{
 							loc.return_status = expectInt(i, tok, "return");
-							if (i < N && tok[i] != ";")
-								loc.return_target = tok[i++];
+							while (i < N && tok[i] != ";" && tok[i] != "}")
+							{
+								loc.return_target += tok[i++];
+								if (i < N && tok[i] != ";" && tok[i] != "}")
+									loc.return_target += " ";
+							}
 							if (i < N && tok[i] == ";")
 								++i;
 							continue;

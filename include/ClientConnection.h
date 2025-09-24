@@ -15,6 +15,7 @@
 #include "RouteResolver.h"
 #include "Phase.h"
 #include "RoutePlan.h"
+#include "ReturnHandler.h"
 // #include "RequestDecoder.h"
 
 class Server;

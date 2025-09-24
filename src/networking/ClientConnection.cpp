@@ -980,14 +980,21 @@ void ClientConnection::selectRouteOnce()
 
     vs_idx = server->resolveVirtualServerByPort(local_port, host);
 
+    state = PH_PRECHECK;
     pr = RequestGuards::preflight(server->getConfig(),
                                   vs_idx,
                                   req.getMethod(),
                                   req.getPath(),
                                   req.getHeaders(),
                                   ctx);
+	// For Routes that decide on HK_RETURN, give back theese Responses and then finish writing
+	if (ctx->kind == RouteDecision::HK_RETURN)
+	{
+		const std::string s = ReturnHandler::handle(ctx->status, ctx->return_target);
+		io.getChainBuf().push_copy(s.data(), s.size());
+		state = PH_WRITE;
+	}
     route_selected = true;
-    state = PH_PRECHECK;
     resetDeadline(BODY_TIMEOUT_MS);
 }
 
@@ -1269,9 +1276,6 @@ void ClientConnection::routeAndBuild()
 	os << res;
 	const std::string s = os.str();
 	io.getChainBuf().push_copy(s.data(), s.size());
-
-	state = PH_WRITE;
-	resetDeadline(WR_TIMEOUT_MS);
 	state = PH_WRITE;
 	resetDeadline(WR_TIMEOUT_MS);
 }
