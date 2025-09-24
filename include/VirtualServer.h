@@ -75,6 +75,10 @@ struct Location {
 		bool        upload_overwrite;      // default false
 		std::size_t upload_max_file_size;  // 0 = unlimited per part
 
+		 // NEW: per-location proxy timeouts
+		int                             proxy_connect_timeout_ms; // default 3000
+		int                             proxy_io_idle_timeout_ms; // default 15000
+
 		
 
 		Location();

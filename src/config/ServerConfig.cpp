@@ -701,13 +701,27 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 							continue;
 						}
 						if (lkw == "proxy_pass")
-						{
-							loc.is_proxy = true;
-							loc.proxy_name = expectWord(i, tok);
-							if (i < N && tok[i] == ";")
-								++i;
-							continue;
-						}
+							{
+								loc.is_proxy = true;
+								loc.proxy_name = expectWord(i, tok);
+								if (i < N && tok[i] == ";")
+									++i;
+								continue;
+							}
+							if (lkw == "proxy_connect_timeout")
+							{
+								loc.proxy_connect_timeout_ms = expectInt(i, tok, "proxy_connect_timeout");
+								if (i < N && tok[i] == ";")
+									++i;
+								continue;
+							}
+							if (lkw == "proxy_read_timeout")
+							{
+								loc.proxy_io_idle_timeout_ms = expectInt(i, tok, "proxy_read_timeout");
+								if (i < N && tok[i] == ";")
+									++i;
+								continue;
+							}
 						if (lkw == "limit_req")
 						{
 							int reqs = 0, burst = 0;
