@@ -15,13 +15,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CASES="cgi_env_cookies.sh
 run_all.sh
 stress_10k.py
-chunked_multipart.py"
+chunked_multipart.py
+return_directive.sh"
 
 # Matching expected outputs (separate multiple expected strings with | )
 EXPECTED="Summary: 3 passed, 0 failed
 Smoke suite completed.
 413
-Files uploaded successfully"
+Files uploaded successfully
+[Summary: 8 passed, 0 failed]"
 
 SUCCESS=0
 FAIL=0

@@ -50,8 +50,6 @@ static std::size_t lookup_max_body_vs(const ServerConfig &cfg, int vs_idx) {
 	return (m <= 0) ? 0 : static_cast<std::size_t>(m);
 }
 
-#include <iostream>
-
 Preflight RequestGuards::preflight(const ServerConfig &cfg,
 								int vs_idx,
 								const std::string &method_in,
