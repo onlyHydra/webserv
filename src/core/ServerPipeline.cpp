@@ -139,13 +139,21 @@ if (ctx.loc && ctx.loc->rate_limit.enabled) {
     rl.maybeCleanup(now_ms);
 
     if (!d.allowed) {
-        HttpResponse tooMany = ResponseFactory::makeText(429, "Too Many Requests\n",
-                                                         "Too Many Requests", true);
-        char ra[32]; std::snprintf(ra, sizeof ra, "%d", d.retry_after_seconds);
-        tooMany.headers.set("Retry-After", std::string(ra));
-        res = tooMany;
-        return true;
-    }
+    HttpResponse tooMany = ResponseFactory::makeText(
+        429, "Too Many Requests\n", "Too Many Requests", true);
+
+    char ra[32]; std::snprintf(ra, sizeof ra, "%d", d.retry_after_seconds);
+    tooMany.headers.set("Retry-After", std::string(ra));
+
+    // Expose rate limit metadata
+    char lim[32]; std::snprintf(lim, sizeof lim, "%d", d.limit_rpm);
+    tooMany.headers.set("X-RateLimit-Limit", std::string(lim));
+    tooMany.headers.set("X-RateLimit-Remaining", "0");
+
+    res = tooMany;
+    return true; // short-circuit, no handler
+}
+
 }
 
 
