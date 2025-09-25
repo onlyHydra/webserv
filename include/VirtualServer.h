@@ -51,35 +51,42 @@ struct UpstreamPool {
 
 // ---------- Location ----------
 struct Location {
-		std::string                     path_prefix;
-		bool                            regex;
-		std::string                     root;
-		bool                            autoindex;
-		std::vector<std::string>        index_files;
-		std::vector<std::string>        allowed_methods;
-		std::string                     upload_dir;
-		bool                            is_proxy;
-		std::string                     proxy_name;
-		std::map<std::string, CgiSpec>  cgi_by_ext;
-		RateLimitConfig                 rate_limit;
-		PutPatchConfig                  write_conf;
-		// new (parsing support)
-		std::vector<std::string>        try_files;      // tokens until ';'
-		int                             return_status;  // 0 if not set
-		std::string                     return_target;  // optional url/text
-		std::vector<std::string>        allow_list;     // CIDR or "all"
-		std::vector<std::string>        deny_list;      // CIDR or "all"
-		
-		// defaults: disabled, no overwrite, no per-part cap
-		std::string upload_store;          // e.g. "/var/www/uploads"
-		bool        upload_overwrite;      // default false
-		std::size_t upload_max_file_size;  // 0 = unlimited per part
+	std::string                     path_prefix;
+	bool                            regex;
+	std::string                     root;
+	bool                            autoindex;
+	std::vector<std::string>        index_files;
+	std::vector<std::string>        allowed_methods;
+	std::string                     upload_dir;
+	bool                            is_proxy;
+	std::string                     proxy_name;
+	std::map<std::string, CgiSpec>  cgi_by_ext;
 
-		
+	// --- Rate limit (single declaration!) ---
+	RateLimitConfig                 rate_limit;  // configured per-location
 
-		Location();
-		~Location();
+	PutPatchConfig                  write_conf;
+
+	// new (parsing support)
+	std::vector<std::string>        try_files;      // tokens until ';'
+	int                             return_status;  // 0 if not set
+	std::string                     return_target;  // optional url/text
+	std::vector<std::string>        allow_list;     // CIDR or "all"
+	std::vector<std::string>        deny_list;      // CIDR or "all"
+
+	// uploads
+	std::string                     upload_store;          // e.g. "/var/www/uploads"
+	bool                            upload_overwrite;      // default false
+	std::size_t                     upload_max_file_size;  // 0 = unlimited per part
+
+	// proxy timeouts (if you added these)
+	int                             proxy_connect_timeout_ms;
+	int                             proxy_io_idle_timeout_ms;
+
+	Location();
+	~Location();
 };
+
 
 // ---------- VirtualServer ----------
 class VirtualServer {

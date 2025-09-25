@@ -19,7 +19,9 @@ chunked_multipart.py
 chunked_debug_verbose.py
 chunked_upload_test.py
 probe_connect.py
-return_directive.sh"
+return_directive.sh
+cgi_rate_limits.py
+proxy_e2e.py"
 
 # Matching expected outputs (separate multiple expected strings with | )
 EXPECTED="Summary: 3 passed, 0 failed
@@ -29,7 +31,9 @@ Status: 201
 HTTP/1.1 201 Created
 Status: 409
 HTTP/1.1 200 OK
-[Summary: 8 passed, 0 failed]"
+[Summary: 8 passed, 0 failed]
+limiter enforced on CGI
+All proxy tests passed"
 
 SUCCESS=0
 FAIL=0

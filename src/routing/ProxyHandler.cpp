@@ -130,69 +130,65 @@ with the event loop pumping data bidirectionally until completion or timeout.
 
 bool ProxyHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& ctx)
 {
-	// Expect ctx.upstream_name like "127.0.0.1:9000" (or "host:port")
-	const std::string up = ctx.upstream_name;
-	if (up.empty()) {
-		res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
-		return true;
-	}
+    // Upstream expected from routing (e.g., "127.0.0.1:9000")
+    const std::string up = ctx.upstream_name;
 
-	std::string host, port;
-	const std::string::size_type c = up.find(':');
-	if (c == std::string::npos) { 
-		host = up; port = "80"; 
-	}
-	else { 
-		host = up.substr(0, c); 
-		port = up.substr(c + 1); 
-	}
+    // If a proxy location matched but no upstream is configured, return 501 per story.
+    if (up.empty()) {
+        res = ResponseFactory::makeErrorOrPage(ctx, 501, "Not Implemented", true);
+        return true;
+    }
 
-	// Build target path by stripping the matched prefix and normalizing to a single leading '/'
-	std::string rel = ctx.rel_path;                    // may or may not start with '/'
-	if (!rel.empty() && rel[0] == '/')
-		rel.erase(0,1); // drop leading '/' if present
-	std::string target_path = rel.empty() ? "/" : ("/" + rel);
+    // Parse host:port
+    std::string host, port;
+    const std::string::size_type c = up.find(':');
+    if (c == std::string::npos) {
+        host = up;
+        port = "80";
+    } else {
+        host = up.substr(0, c);
+        port = up.substr(c + 1);
+    }
 
-	// preserve original query
-	const std::string q = req.getQuery();
-	if (!q.empty()) { 
-		target_path += "?";
-		target_path += q; 
-	}
+    // Build upstream target path = ctx.rel_path (normalized) + original query
+    std::string rel = ctx.rel_path;
+    if (!rel.empty() && rel[0] == '/')
+        rel.erase(0, 1);
+    std::string target_path = rel.empty() ? "/" : ("/" + rel);
+    const std::string q = req.getQuery();
+    if (!q.empty()) {
+        target_path += "?";
+        target_path += q;
+    }
 
-	// Open non-blocking upstream socket
-	int ufd = connect_nonblock(host, port);
-	if (ufd < 0) {
-	#if defined(DEBUG)
-		std::fprintf(stderr, "[PROXY] connect failed to %s:%s (errno=%d)\n",
-					host.c_str(), port.c_str(), errno);
-#endif
-		res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
-		return true;
-	}
+    // Non-blocking connect to upstream
+    int ufd = connect_nonblock(host, port);
+    if (ufd < 0) {
+        res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
+        return true;
+    }
 
-	// Hand off to the client connection so the event loop can drive the tunnel
-	ClientConnection *cli = ctx.client;
-	if (!cli) {
-		::close(ufd);
-		res = ResponseFactory::makeErrorOrPage(ctx, 500, "Internal Server Error", true);
-		return true;
-	}
+    // Hand off to the connection (event loop will drive the tunnel)
+    ClientConnection *cli = ctx.client;
+    if (!cli) {
+        ::close(ufd);
+        res = ResponseFactory::makeErrorOrPage(ctx, 500, "Internal Server Error", true);
+        return true;
+    }
 
-	const int connect_timeout_ms = 5000;
-	const int io_idle_timeout_ms = 15000;
+    // Use timeouts from RequestContext (configured via location), with sensible fallbacks
+    const int connect_timeout_ms = (ctx.proxy_connect_timeout_ms > 0) ? ctx.proxy_connect_timeout_ms : 5000;
+    const int io_idle_timeout_ms = (ctx.proxy_io_idle_timeout_ms > 0) ? ctx.proxy_io_idle_timeout_ms : 15000;
 
-	// Use the overload that accepts a target path (path + optional query).
-	if (!cli->beginProxyTunnel(ufd, host, port,
-							connect_timeout_ms, io_idle_timeout_ms,
-							req, target_path)) {
-		::close(ufd);
-		res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
-		return true;
-	}
+    if (!cli->beginProxyTunnel(ufd, host, port,
+                               connect_timeout_ms, io_idle_timeout_ms,
+                               req, target_path)) {
+        ::close(ufd);
+        res = ResponseFactory::makeErrorOrPage(ctx, 502, "Bad Gateway", true);
+        return true;
+    }
 
-	// Tunnel is active; streaming happens asynchronously.
-	return false;
+    // Asynchronous tunnel established; response will be streamed
+    return false;
 }
-
 

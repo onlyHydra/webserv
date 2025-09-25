@@ -21,7 +21,7 @@ struct RequestContext
 
 	// --- RouteDecision extras (from Router) ---
 	std::string cgi_ext;         // e.g. ".php" if CGI chosen
-	std::string upstream_name;   // name of upstream if proxy
+	std::string upstream_name;   // "host:port" for proxy
 
 	// --- Body storage info ---
 	bool        temp_file_used;  // true if the request body was stored in a temp file
@@ -32,27 +32,34 @@ struct RequestContext
 	std::string effective_root;  // filesystem root to resolve files
 	std::string matched_prefix;
 
+	// --- Proxy timeouts (ms) ---
+	int proxy_connect_timeout_ms;   // connect deadline
+	int proxy_io_idle_timeout_ms;   // idle I/O deadline
+
 	// --- connection-scoped helpers ---
 	CGIStreamer      *cgi_streamer;   // non-owning pointer to ClientConnection’s CGIStreamer
-	ClientConnection *client;         // back-pointer to current ClientConnection
+	ClientConnection *client;         // back-pointer to current ClientConnection (set by caller if available)
 
 	RequestContext()
 		: cfg(0),
-		vs(0),
-		loc(0),
-		vs_index(-1),
-		local_port(0),
-		cgi_ext(),
-		upstream_name(),
-		temp_file_used(false),
-		temp_filename(),
-		rel_path(),
-		effective_root(),
-		matched_prefix(),
-		cgi_streamer(0),
-		client(0)
+		  vs(0),
+		  loc(0),
+		  vs_index(-1),
+		  local_port(0),
+		  cgi_ext(),
+		  upstream_name(),
+		  temp_file_used(false),
+		  temp_filename(),
+		  rel_path(),
+		  effective_root(),
+		  matched_prefix(),
+		  proxy_connect_timeout_ms(5000),
+		  proxy_io_idle_timeout_ms(15000),
+		  cgi_streamer(0),
+		  client(0)
 	{}
 };
 
 #endif // REQUEST_CONTEXT_H
+
 

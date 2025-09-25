@@ -269,125 +269,148 @@ body forwarding, response streaming, backpressure, and timeouts.
 */
 
 bool ClientConnection::beginProxyTunnel(int upstream_fd,
-										const std::string &host,
-										const std::string &port,
-										int connect_timeout_ms,
-										int io_idle_timeout_ms,
-										const HttpRequest &req,
-										const std::string &target_path)
+                                        const std::string &host,
+                                        const std::string &port,
+                                        int connect_timeout_ms,
+                                        int io_idle_timeout_ms,
+                                        const HttpRequest &req,
+                                        const std::string &target_path)
 {
-	if (proxy_.active)
-		return false; // already proxying this connection
+    if (proxy_.active)
+        return false; // already proxying this connection
 
-	proxy_.active = true;
-	proxy_.connect_done = false;
-	proxy_.ufd = upstream_fd;
-	proxy_.uh = host;
-	proxy_.up = port;
+    proxy_.active = true;
+    proxy_.connect_done = false;
+    proxy_.ufd = upstream_fd;
+    proxy_.uh = host;
+    proxy_.up = port;
 
-	proxy_.connect_deadline_ms = now_cached_ms + (unsigned long long)connect_timeout_ms;
-	proxy_.io_idle_deadline_ms = now_cached_ms + (unsigned long long)io_idle_timeout_ms;
+    proxy_.connect_deadline_ms = now_cached_ms + (unsigned long long)connect_timeout_ms;
+    proxy_.io_idle_deadline_ms = now_cached_ms + (unsigned long long)io_idle_timeout_ms;
+	proxy_.io_idle_window_ms   = io_idle_timeout_ms; 
 
-	// ---- Build upstream request head -------------------------------------------------
-	std::string head;
-	head.reserve(1024);
+    // ---- Build upstream request head -------------------------------------------------
+    std::string head;
+    head.reserve(1024);
 
-	// Request line: METHOD SP target SP HTTP/1.1 CRLF
-	head += req.getMethod();
-	head += " ";
+    // Request line: METHOD SP target SP HTTP/1.1 CRLF
+    head += req.getMethod();
+    head += " ";
 
-	// Target path: use override if provided, else derive from req (path[?query])
-	std::string target;
-	if (!target_path.empty())
-	{
-		target = target_path;
-	}
-	else
-	{
-		target = req.getPath();
-		const std::string q = req.getQuery();
-		if (!q.empty())
-		{
-			target += "?";
-			target += q;
-		}
-	}
-	head += target;
+    // Target path: use override if provided, else derive from req (path[?query])
+    std::string target;
+    if (!target_path.empty())
+    {
+        target = target_path;
+    }
+    else
+    {
+        target = req.getPath();
+        const std::string q = req.getQuery();
+        if (!q.empty())
+        {
+            target += "?";
+            target += q;
+        }
+    }
+    head += target;
 
-	head += " ";
-	head += req.getHttpVer(); // e.g., "HTTP/1.1"
-	head += "\r\n";
+    head += " ";
+    head += req.getHttpVer(); // e.g., "HTTP/1.1"
+    head += "\r\n";
 
-	// Headers: use your public Headers API; no iteration support, so copy a small allowlist
-	const Headers &H = req.getHeaders();
+    const Headers &H = req.getHeaders();
 
-	// Host
-	if (!H.keyExists("Host"))
-	{
-		head += "Host: ";
-		head += proxy_.uh;
-		if (!proxy_.up.empty() && proxy_.up != "80")
-		{
-			head += ":";
-			head += proxy_.up;
-		}
-		head += "\r\n";
-	}
-	else
-	{
-		const std::string hv = H.get("Host");
-		if (!hv.empty())
-		{
-			head += "Host: ";
-			head += hv;
-			head += "\r\n";
-		}
-	}
+    // Host
+    if (!H.keyExists("Host"))
+    {
+        head += "Host: ";
+        head += proxy_.uh;
+        if (!proxy_.up.empty() && proxy_.up != "80")
+        {
+            head += ":";
+            head += proxy_.up;
+        }
+        head += "\r\n";
+    }
+    else
+    {
+        const std::string hv = H.get("Host");
+        if (!hv.empty())
+        {
+            head += "Host: ";
+            head += hv;
+            head += "\r\n";
+        }
+    }
 
-	// Pass-through a few safe headers if present (no hop-by-hop here)
-	const char *pass_list[] = {
-		"Content-Type",
-		"Content-Length",
-		"User-Agent",
-		"Accept",
-		"Accept-Encoding",
-		"Accept-Language",
-		"Cookie"};
-	for (size_t i = 0; i < sizeof(pass_list) / sizeof(pass_list[0]); ++i)
-	{
-		const std::string v = H.get(pass_list[i]);
-		if (!v.empty())
-		{
-			head += pass_list[i];
-			head += ": ";
-			head += v;
-			head += "\r\n";
-		}
-	}
+    // Pass-through safe headers only (no hop-by-hop, no Transfer-Encoding)
+    const char *pass_list[] = {
+        "Content-Type",
+        "Content-Length",
+        "User-Agent",
+        "Accept",
+        "Accept-Encoding",
+        "Accept-Language",
+        "Cookie"};
+    for (size_t i = 0; i < sizeof(pass_list) / sizeof(pass_list[0]); ++i)
+    {
+        const std::string v = H.get(pass_list[i]);
+        if (!v.empty())
+        {
+            head += pass_list[i];
+            head += ": ";
+            head += v;
+            head += "\r\n";
+        }
+    }
 
-	// Simplify lifecycle upstream (no keep-alive upstream for first cut)
-	head += "Connection: close\r\n";
-	head += "\r\n";
+    // Force simple lifecycle upstream
+    head += "Connection: close\r\n";
+    head += "\r\n";
 
-	// Save head into upstream-send buffer
-	proxy_.to_upstream = head;
-	proxy_.to_up_off = 0;
+    proxy_.to_upstream = head;
+    proxy_.to_up_off = 0;
 
-	// Optional: include already-buffered body (if any) — small bodies only
-	std::vector<char> mem = req.readBodyToVector();
-	if (!mem.empty())
-	{
-		proxy_.body_mem.swap(mem);
-		proxy_.body_off = 0;
-	}
-	else
-	{
-		proxy_.body_off = 0;
-	}
+    // ---- Body handling -------------------------------------------------
+    proxy_.body_off = 0;
+    proxy_.body_mem.clear();
 
-	// serviceProxyTunnel() will be called from onTick() to drive connect/IO
-	return true;
+    if (req.isBodyOnDisk())
+    {
+        proxy_.body_file = req.getBodyFilePath();
+        proxy_.body_fd = ::open(proxy_.body_file.c_str(), O_RDONLY | O_CLOEXEC);
+        proxy_.body_pos = 0;
+        if (proxy_.body_fd >= 0)
+        {
+            proxy_.body_src = proxy_.BODY_FILE;
+        }
+        else
+        {
+            // could not open temp file -> fail now
+            fail(502, "Bad Gateway");
+            proxy_.active = false;
+            return false;
+        }
+    }
+    else
+    {
+        std::vector<char> mem = req.readBodyToVector();
+        if (!mem.empty())
+        {
+            proxy_.body_mem.swap(mem);
+            proxy_.body_src = proxy_.BODY_MEM;
+        }
+        else
+        {
+            proxy_.body_src = proxy_.BODY_NONE;
+        }
+    }
+
+    // serviceProxyTunnel() will handle connect/IO
+    return true;
 }
+
 
 /*
 
@@ -535,21 +558,15 @@ void ClientConnection::serviceProxyTunnel()
 	}
 
 	// 5) idle timeout
-	if (progressed)
-	{
-		proxy_.io_idle_deadline_ms = now_cached_ms + 15000; // or your configured value
-	}
-	else if (now_cached_ms >= proxy_.io_idle_deadline_ms)
-	{
-		fail(504, "Gateway Timeout");
-		if (proxy_.ufd >= 0)
-		{
-			::close(proxy_.ufd);
-			proxy_.ufd = -1;
+		if (progressed) {
+			proxy_.io_idle_deadline_ms = now_cached_ms + (unsigned long long)proxy_.io_idle_window_ms;
+		} else if (now_cached_ms >= proxy_.io_idle_deadline_ms) {
+			fail(504, "Gateway Timeout");
+			if (proxy_.ufd >= 0) { ::close(proxy_.ufd); proxy_.ufd = -1; }
+			proxy_.active = false;
+			return;
 		}
-		proxy_.active = false;
-		return;
-	}
+
 }
 
 /*
@@ -1389,8 +1406,9 @@ void ClientConnection::routeAndBuild()
         vs_idx,
         req,
         res,
-        *ctx,
-        &cgi);
+        *ctx,      // RouteDecision&
+        &cgi,      // CGIStreamer*
+        this);     // ClientConnection*
 
     // After pipeline: did it mutate headers or request?
     const std::string ct_after = req.getHeaders().get("Content-Type");
@@ -1408,7 +1426,7 @@ void ClientConnection::routeAndBuild()
 
     if (!done)
     {
-        // Asynchronous path (e.g., CGI) — write whatever is queued so far
+        // Asynchronous path (e.g., CGI or Proxy tunnel) — write whatever is queued so far
         state = PH_WRITE;
         resetDeadline(WR_TIMEOUT_MS);
 	#if defined(DEBUG)
@@ -1420,7 +1438,7 @@ void ClientConnection::routeAndBuild()
         return;
     }
 
-    // -------- Synchronous response (static/proxy/put/patch) --------
+    // -------- Synchronous response (static/put/patch/etc.) --------
     // Reflect the keep-alive policy.
     if (should_close)
         res.headers.set("Connection", "close");
@@ -1438,6 +1456,7 @@ void ClientConnection::routeAndBuild()
 	state = PH_WRITE;
 	resetDeadline(WR_TIMEOUT_MS);
 }
+
 
 
 /*
