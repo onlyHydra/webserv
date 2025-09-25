@@ -64,6 +64,10 @@ Preflight RequestGuards::preflight(const ServerConfig &cfg,
 	Router::makeDecisionForVS(cfg, vs_idx, method_in, path, dec);
 	if (out_route) *out_route = dec;
 
+	// For special Locations, that want special behaviour
+	if (dec.kind == RouteDecision::HK_RETURN && dec.status != 0)
+		return (pr);
+
 	if (dec.kind == RouteDecision::HK_ERROR && dec.status != 0) {
 		pr.ok = false; pr.reject_status = dec.status; pr.reject_reason = "Routing error";
 		return pr;

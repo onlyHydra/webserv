@@ -106,6 +106,10 @@ void Server::setCloseOnExec(int fd)
 
 void Server::stop()
 {
+	// Finish current running requests
+	// Unregister connections
+	// Unregister current Handlers
+	// Stop Loop
 	unregisterListeners();
 	closeAll();
 	loop_.stop();

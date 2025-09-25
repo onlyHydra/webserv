@@ -5,7 +5,7 @@ import sys
 
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080/cgi/hello.py"
 
-def hammer(count=12, interval=0.0):
+def hammer(count=20, interval=0.0):
     print(f"== CGI Rate Limit Test: {count} requests to {URL} (interval={interval:.1f}s) ==")
     codes = {}
     for i in range(count):

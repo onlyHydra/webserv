@@ -764,12 +764,16 @@ void ClientConnection::onTick(unsigned long long now_ms)
     {
         if (outbytes >= HIGH_WATER)
         {
+        #if defined(DEBUG)
             std::fprintf(stderr, "[CGI][BP] pause stdout (queued=%zu)\n", outbytes);
+        #endif
             cgi.pauseStdoutReads();
         }
         else if (outbytes <= LOW_WATER)
         {
+            #if defined(DEBUG)
             std::fprintf(stderr, "[CGI][BP] resume stdout (queued=%zu)\n", outbytes);
+            #endif
             cgi.resumeStdoutReads();
         }
     }
@@ -777,12 +781,12 @@ void ClientConnection::onTick(unsigned long long now_ms)
     if (io.getFlow().shouldPauseRead(outbytes))
     {
         io.getFlow().setReadPaused(true);
-        std::cerr << "[tick] pause read (queued=" << outbytes << ")\n";
+        // std::cerr << "[tick] pause read (queued=" << outbytes << ")\n";
     }
     if (io.getFlow().shouldResumeRead(outbytes))
     {
         io.getFlow().setReadPaused(false);
-        std::cerr << "[tick] resume read (queued=" << outbytes << ")\n";
+        // std::cerr << "[tick] resume read (queued=" << outbytes << ")\n";
     }
 
     // 2) Try to flush whatever is queued (static or CGI)
@@ -803,7 +807,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
     // 3) Deadline enforcement
     if (dl.expired(now_ms) && state != PH_CLOSE)
     {
-        std::cerr << "[tick] deadline expired in state=" << (int)state << std::endl;
+        // std::cerr << "[tick] deadline expired in state=" << (int)state << std::endl;
         if (state == PH_READ_HEADERS || state == PH_READ_BODY ||
             state == PH_PRECHECK   || state == PH_ROUTE_SELECT)
         {
@@ -824,7 +828,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
         ssize_t r = io.nb_read(kAllYouCanEat);
         if (r == 0)
         {
-            std::cerr << "[tick] peer closed (nb_read==0) -> PH_CLOSE\n";
+            // std::cerr << "[tick] peer closed (nb_read==0) -> PH_CLOSE\n";
             state = PH_CLOSE;
             return;
         }
@@ -832,7 +836,7 @@ void ClientConnection::onTick(unsigned long long now_ms)
     }
 
     // 5) Drive the HTTP/CGI state machine
-    std::cerr << "[tick] dispatch state=" << (int)state << std::endl;
+    // std::cerr << "[tick] dispatch state=" << (int)state << std::endl;
 
 // 4.9) Safety guard: if a body reader exists and it's not finished yet,
 //      force the state back to PH_READ_BODY (someone reset it too early).
@@ -849,10 +853,12 @@ if (state == PH_READ_HEADERS && body) {
     }
 
     if (in_progress) {
+        #if defined(DEBUG)
         std::fprintf(stderr,
             "[guard] restoring PH_READ_BODY (bytes=%zu, fixed_target=%zu)\n",
             (size_t)(body ? body->bytes_received() : 0),
             (size_t)fixed_body_target_);
+            #endif
         state = PH_READ_BODY;
     }
 }
@@ -887,7 +893,7 @@ if (state == PH_READ_HEADERS && body) {
             if (body) { delete body; body = 0; }
             req.cleanupBodyFile();
             ready_to_close = true;
-            std::cerr << "[tick] socket drained -> ready_to_close\n";
+            // std::cerr << "[tick] socket drained -> ready_to_close\n";
         }
         return;
     }
@@ -1004,7 +1010,9 @@ void ClientConnection::parseHeaders()
 
 		// ✅ Debug: dump Content-Type after headers parsed
 		std::string ct = req.getHeaders().get("Content-Type");
+		#if defined(DEBUG)
 		std::fprintf(stderr, "[PARSE][HDR] CT='%s'\n", ct.c_str());
+		#endif
 
 		ring.consumed(to_feed);
 		hdr_bytes += to_feed;
@@ -1083,15 +1091,22 @@ void ClientConnection::selectRouteOnce()
 
 	vs_idx = server->resolveVirtualServerByPort(local_port, host);
 
-	pr = RequestGuards::preflight(server->getConfig(),
-								  vs_idx,
-								  req.getMethod(),
-								  req.getPath(),
-								  req.getHeaders(),
-								  ctx);
-	route_selected = true;
 	state = PH_PRECHECK;
-	resetDeadline(BODY_TIMEOUT_MS);
+	pr = RequestGuards::preflight(server->getConfig(),
+								vs_idx,
+								req.getMethod(),
+								req.getPath(),
+								req.getHeaders(),
+								ctx);
+	// For Routes that decide on HK_RETURN, give back theese Responses and then finish writing
+	if (ctx->kind == RouteDecision::HK_RETURN)
+	{
+		const std::string s = ReturnHandler::handle(ctx->status, ctx->return_target);
+		io.getChainBuf().push_copy(s.data(), s.size());
+		state = PH_WRITE;
+	}
+    route_selected = true;
+    resetDeadline(BODY_TIMEOUT_MS);
 }
 
 /*
@@ -1113,14 +1128,14 @@ void ClientConnection::runPreflight()
 
 	//  Debug: dump raw Content-Type header before analyze()
     std::string ct_raw = H.get("Content-Type");
-    std::cerr << "[preflight] CT(raw)='" << ct_raw << "'" << std::endl;
+    // std::cerr << "[preflight] CT(raw)='" << ct_raw << "'" << std::endl;
 
 
     // Parse/validate headers first
     HeaderCheck hc = HeaderProcessor::analyze(req, H, max_body_bytes);
     if (!hc.ok)
     {
-        std::cerr << "[preflight] header analyze failed: " << hc.error_status << std::endl;
+        // std::cerr << "[preflight] header analyze failed: " << hc.error_status << std::endl;
         fail(hc.error_status, 0);
         return;
     }
@@ -1129,7 +1144,7 @@ void ClientConnection::runPreflight()
     if (!pr.ok)
     {
         int st = pr.reject_status ? pr.reject_status : 400;
-        std::cerr << "[preflight] guard reject " << st << " reason=" << pr.reject_reason << std::endl;
+        // std::cerr << "[preflight] guard reject " << st << " reason=" << pr.reject_reason << std::endl;
         fail(st, pr.reject_reason.c_str());
         return;
     }
@@ -1138,17 +1153,17 @@ void ClientConnection::runPreflight()
     if (pr.max_body_bytes && (!max_body_bytes || pr.max_body_bytes < max_body_bytes))
         max_body_bytes = pr.max_body_bytes;
 
-    std::cerr << "[preflight] needs_body=" << (pr.needs_body ? 1 : 0)
-              << " chunked=" << (hc.chunked ? 1 : 0)
-              << " CL=" << (unsigned long)hc.content_length
-              << " cap=" << (unsigned long)max_body_bytes
-              << std::endl;
+    // std::cerr << "[preflight] needs_body=" << (pr.needs_body ? 1 : 0)
+    //           << " chunked=" << (hc.chunked ? 1 : 0)
+    //           << " CL=" << (unsigned long)hc.content_length
+    //           << " cap=" << (unsigned long)max_body_bytes
+    //           << std::endl;
 
     // If this request doesn't need a body, route immediately.
     if (!pr.needs_body)
     {
         state = PH_ROUTE;
-        std::cerr << "[preflight] no body needed -> PH_ROUTE\n";
+        // std::cerr << "[preflight] no body needed -> PH_ROUTE\n";
         return;
     }
 
@@ -1156,7 +1171,7 @@ void ClientConnection::runPreflight()
     if (!hc.chunked && hc.content_length > 0 &&
         max_body_bytes && hc.content_length > max_body_bytes)
     {
-        std::cerr << "[preflight] CL exceeds cap -> 413\n";
+        // std::cerr << "[preflight] CL exceeds cap -> 413\n";
         fail(413, "Payload Too Large");
         return;
     }
@@ -1165,24 +1180,24 @@ void ClientConnection::runPreflight()
     if (hc.expect_continue && ExpectContinue::needed(H))
     {
         ExpectContinue::write100(io.getChainBuf());
-        std::cerr << "[preflight] wrote 100-continue\n";
+        // std::cerr << "[preflight] wrote 100-continue\n";
     }
 
     // Decide how we'll read the body
     if (hc.chunked)
     {
-        std::cerr << "[preflight] choose ChunkedReader\n";
+        // std::cerr << "[preflight] choose ChunkedReader\n";
         decideBodyReader(); // chunked overload (writes into req.bodyRef())
     }
     else if (hc.content_length > 0)
     {
-        std::cerr << "[preflight] choose ContentLenght/FileBodyReader, CL=" 
-                  << (unsigned long)hc.content_length << std::endl;
+        // std::cerr << "[preflight] choose ContentLenght/FileBodyReader, CL=" 
+        //           << (unsigned long)hc.content_length << std::endl;
         decideBodyReader(hc.content_length);
     }
     else
     {
-        std::cerr << "[preflight] neither CL nor chunked -> 411\n";
+        // std::cerr << "[preflight] neither CL nor chunked -> 411\n";
         fail(411, "Length Required");
         return;
     }
@@ -1194,7 +1209,7 @@ void ClientConnection::runPreflight()
         if (!tail.empty())
         {
             (void)body->consume(tail.data(), tail.size());
-            std::cerr << "[preflight] fed tail bytes=" << (unsigned long)tail.size() << std::endl;
+            // std::cerr << "[preflight] fed tail bytes=" << (unsigned long)tail.size() << std::endl;
         }
     }
 
@@ -1205,7 +1220,7 @@ void ClientConnection::runPreflight()
 
     state = PH_READ_BODY;
     resetDeadline(BODY_TIMEOUT_MS);
-    std::cerr << "[preflight] -> PH_READ_BODY\n";
+    // std::cerr << "[preflight] -> PH_READ_BODY\n";
 }
 
 
@@ -1250,8 +1265,8 @@ void ClientConnection::readBody()
         ring.consumed(used);
 
 		// after 'ring.consumed(used);' and deadline reset:
-		std::cerr << "[readBody] used=" << used
-				<< " total=" << body->bytes_received() << std::endl;
+		// std::cerr << "[readBody] used=" << used
+		// 		<< " total=" << body->bytes_received() << std::endl;
 
         resetDeadline(BODY_TIMEOUT_MS);
 
@@ -1318,8 +1333,8 @@ void ClientConnection::readBody()
 
     if (!done) {
 		
-		std::cerr << "[readBody] not done yet; total=" 
-              << body->bytes_received() << std::endl;
+		// std::cerr << "[readBody] not done yet; total=" 
+        //       << body->bytes_received() << std::endl;
 		return;
 	}
 
@@ -1328,13 +1343,13 @@ void ClientConnection::readBody()
 	if (ChunkedReader* cr2 = dynamic_cast<ChunkedReader*>(body)) {
 		if (cr2->isBodyOnDisk()) {
 			req.enableBodyOnDisk(cr2->getBodyFilePath());
-			std::cerr << "[readBody] chunked complete: disk="
-					<< cr2->getBodyFilePath() << std::endl;
+			// std::cerr << "[readBody] chunked complete: disk="
+			// 		<< cr2->getBodyFilePath() << std::endl;
 		} else {
 			std::ostringstream oss;
 			oss << req.getBodyLength();
-			std::cerr << "[readBody] chunked complete: mem size="
-					<< oss.str() << std::endl;
+			// std::cerr << "[readBody] chunked complete: mem size="
+			// 		<< oss.str() << std::endl;
 		}
 	}
 
@@ -1370,19 +1385,22 @@ void ClientConnection::routeAndBuild()
     const std::string ex_before = req.getHeaders().get("Expect");
     const std::string ho_before = req.getHeaders().get("Host");
 
+	#if defined(DEBUG)
     std::fprintf(stderr,
         "[ROUTE][enter] method=%s path=%s disk=%d bodyLen=%lu\n",
         m.c_str(), p.c_str(),
         req.isBodyOnDisk()?1:0,
         (unsigned long)req.getBodyLength());
+		#endif
 
+	#if defined(DEBUG)
     std::fprintf(stderr,
         "[ROUTE][HDR] CT(before)='%s' TE='%s' CL='%s' Expect='%s' Host='%s'\n",
         ct_before.c_str(), te_before.c_str(), cl_before.c_str(),
         ex_before.c_str(), ho_before.c_str());
-
-    // --- Let the pipeline decide and (possibly) start CGI/Proxy. ---
-    // Pass 'this' so RequestContext.client can be set for ProxyHandler::beginProxyTunnel()
+		#endif
+		
+    // --- Let the pipeline decide and (possibly) start CGI. ---
     const bool done = ServerPipeline::processRequest(
         server->getConfig(),
         vs_idx,
@@ -1394,9 +1412,11 @@ void ClientConnection::routeAndBuild()
 
     // After pipeline: did it mutate headers or request?
     const std::string ct_after = req.getHeaders().get("Content-Type");
+	#if defined(DEBUG)
     std::fprintf(stderr,
         "[ROUTE][exit ] done=%d cgi.active=%d res.status=%d CT(after)='%s'\n",
         done?1:0, cgi.isActive()?1:0, res.status, ct_after.c_str());
+		#endif
 
     // One keep-alive decision used by both paths
     const std::string connHdr = req.getHeaders().get("Connection");
@@ -1409,10 +1429,12 @@ void ClientConnection::routeAndBuild()
         // Asynchronous path (e.g., CGI or Proxy tunnel) — write whatever is queued so far
         state = PH_WRITE;
         resetDeadline(WR_TIMEOUT_MS);
+	#if defined(DEBUG)
         std::fprintf(stderr,
             "[ROUTE] async path -> PH_WRITE keep-alive=%d queued=%lu\n",
             should_close?0:1,
             (unsigned long)io.getChainBuf().getByteSize());
+	#endif
         return;
     }
 
@@ -1426,19 +1448,13 @@ void ClientConnection::routeAndBuild()
     // Safe here: will add Content-Length/Date/Server if missing.
     res.ensureDefaultHeaders();
 
-    // Serialize and queue.
-    std::ostringstream os;
-    os << res;
-    const std::string s = os.str();
-    io.getChainBuf().push_copy(s.data(), s.size());
-
-    std::fprintf(stderr,
-        "[ROUTE] sync path -> PH_WRITE status=%d reason='%s' bytes_queued=%lu\n",
-        res.status, res.reason.c_str(),
-        (unsigned long)io.getChainBuf().getByteSize());
-
-    state = PH_WRITE;
-    resetDeadline(WR_TIMEOUT_MS);
+	// Serialize and queue.
+	std::ostringstream os;
+	os << res;
+	const std::string s = os.str();
+	io.getChainBuf().push_copy(s.data(), s.size());
+	state = PH_WRITE;
+	resetDeadline(WR_TIMEOUT_MS);
 }
 
 
@@ -1510,7 +1526,9 @@ void ClientConnection::finishWriteOrNext()
         // one more opportunistic write (usually nothing) and set deadline
         (void)io.nb_write();
         resetDeadline(WR_TIMEOUT_MS);
+	#if defined(DEBUG)
         std::fprintf(stderr, "[write] done -> PH_CLOSE (KA=0)\n");
+	#endif
         return;
     }
 
@@ -1519,7 +1537,9 @@ void ClientConnection::finishWriteOrNext()
     state = PH_READ_HEADERS;
     resetDeadline(IDLE_TIMEOUT_MS);
 
+	#if defined(DEBUG)
     std::fprintf(stderr, "[write] done -> PH_READ_HEADERS (KA=1)\n");
+	#endif
 
     // If the peer has already pipelined the next request, parse it now
     if (io.getInputRing().readAvail() > 0)
@@ -1544,11 +1564,11 @@ void ClientConnection::fail(int code, const char *reason)
 {
 
 
-	std::cerr << "[fail] code=" << code
-              << " reason=" << (reason ? reason : "")
-              << " state=" << (int)state
-              << " bytes_received=" << (body ? body->bytes_received() : 0)
-              << std::endl;
+	// std::cerr << "[fail] code=" << code
+    //           << " reason=" << (reason ? reason : "")
+    //           << " state=" << (int)state
+    //           << " bytes_received=" << (body ? body->bytes_received() : 0)
+    //           << std::endl;
 
 	res = ResponseFactory::makeText(code, "", reason ? reason : "", true);
 
@@ -1587,8 +1607,8 @@ satisfying the specification that CGIs expect EOF-terminated bodies, not raw chu
 void ClientConnection::decideBodyReader() {
     if (body) { delete body; body = 0; }
 
-    std::cerr << "[decideBodyReader] using ChunkedReader -> req.bodyRef()"
-              << std::endl;
+    // std::cerr << "[decideBodyReader] using ChunkedReader -> req.bodyRef()"
+    //           << std::endl;
 
     const std::string tmpdir =
         server->getConfig().servers()[vs_idx].client_body_temp_path;
@@ -1621,8 +1641,8 @@ large ones spill to disk safely. It integrates tightly with later stall/flush wa
 void ClientConnection::decideBodyReader(std::size_t content_length)
 {
 
-	std::cerr << "[decideBodyReader] using ContentLenghtReader, length="
-          << content_length << std::endl;
+	// std::cerr << "[decideBodyReader] using ContentLenghtReader, length="
+    //       << content_length << std::endl;
 
 	if (body)
 	{

@@ -36,6 +36,10 @@ namespace
 			return "Found";
 		case 304:
 			return "Not Modified";
+		case 307:
+			return "Temporary Redirect";
+		case 308:
+			return "Permanent Redirect";
 		case 400:
 			return "Bad Request";
 		case 401:

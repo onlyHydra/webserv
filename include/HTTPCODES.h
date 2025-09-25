@@ -16,6 +16,21 @@ Date: 11/08/2025
 // File was created
 # define HTTP_FILE_CREATED 201
 
+// Body has no content
+# define HTTP_EMPTY_BODY 204
+
+// Resource has been moved permanently (specified in Location header)
+# define HTTP_MOVED_PERM 301
+
+// Resource has been found elsewhere (specified in Location header)
+# define HTTP_FOUND 302
+
+// Resource has been moved temporarily (specified in Location header)
+# define HTTP_TEMP_REDIR 307
+
+// Resource has been moved permanently (specified in Location header)
+# define HTTP_PERM_REDIR 308
+
 // Server cannot or will not process request
 # define HTTP_BAD_REQUEST 400
 

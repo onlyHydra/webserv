@@ -206,10 +206,10 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     };
 
     // ---------- debug: quick summary ----------
-    std::cerr << "[UPLOAD] disk=" << (req.isBodyOnDisk()?1:0)
-              << " mem="  << (unsigned long)req.getBodyLength()
-              << " CT(raw)=" << req.getHeaders().get("Content-Type")
-              << std::endl;
+    // std::cerr << "[UPLOAD] disk=" << (req.isBodyOnDisk()?1:0)
+    //           << " mem="  << (unsigned long)req.getBodyLength()
+    //           << " CT(raw)=" << req.getHeaders().get("Content-Type")
+    //           << std::endl;
 
     // ---------- per-request reset ----------
     saved_.clear();
@@ -220,15 +220,19 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     // ---------- config ----------
     const Location* L = ctx.loc;
     if (!L) {
+        #if defined(DEBUG)
         std::fprintf(stderr, "[UPLOAD] no location\n");
+        #endif
         return Err::send(res, 500, "No location", true);
     }
     upload_dir_   = L->upload_store;
     overwrite_    = L->upload_overwrite;
     per_part_cap_ = L->upload_max_file_size;
 
+    #if defined(DEBUG)
     std::fprintf(stderr, "[UPLOAD] dir='%s' overwrite=%d per_part_cap=%lu\n",
                  upload_dir_.c_str(), overwrite_?1:0, (unsigned long)per_part_cap_);
+    #endif
 
     if (upload_dir_.empty())
         return Err::send(res, 501, "Uploads disabled (upload_store empty)", true);
@@ -237,7 +241,9 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
 
     // ---------- content-type (prefer header; fallback to sniff) ----------
     std::string ctype = req.getHeaders().get("Content-Type");
+    #if defined(DEBUG)
     std::fprintf(stderr, "[UPLOAD] Content-Type(raw): %s\n", ctype.c_str());
+    #endif
 
     std::string body_file = req.getBodyFilePath();
     std::vector<char> mem;
@@ -250,7 +256,9 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
                         : Sniffer::sniffFromMem(mem);
         if (!b.empty()) {
             ctype = "multipart/form-data; boundary=" + b;
+            #if defined(DEBUG)
             std::fprintf(stderr, "[UPLOAD] inferred Content-Type: %s\n", ctype.c_str());
+            #endif
         }
     }
 
@@ -272,12 +280,16 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     // ---------- parse multipart ----------
     MultipartReader mp;
     if (!mp.initFromContentType(ctype)) {
+        #if defined(DEBUG)
         std::fprintf(stderr, "[UPLOAD] Multipart init failed; CT='%s'\n", ctype.c_str());
+        #endif
         return Err::send(res, 415, "multipart/form-data required", false);
     }
 
+    #if defined(DEBUG)
     std::fprintf(stderr, "[UPLOAD] body_file='%s' mem_size=%lu\n",
-                 body_file.c_str(), (unsigned long)mem.size());
+        body_file.c_str(), (unsigned long)mem.size());
+    #endif
     if (body_file.empty() && mem.empty())
         return Err::send(res, 400, "Body unavailable (no temp file, no memory body)", true);
 

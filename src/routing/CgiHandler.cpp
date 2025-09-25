@@ -264,10 +264,11 @@ It returns false to indicate asynchronous processing; the EventLoop and ClientHa
 
 bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
-
+	#if defined(DEBUG)
 	std::fprintf(stderr, "[CGI] handle enter method=%s path=%s body_len=%zu temp=%d\n",
 			req.getMethod().c_str(), req.getPath().c_str(),
 			(size_t)req.getBodyLength(), (int)ctx.temp_file_used);
+#endif
 
 	// 0) Resolve CGI spec (per-location overrides global)
 	CgiRegistry reg;
@@ -336,7 +337,11 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
 	{
 		int in  = ctx.cgi_streamer->cgiStdinFD();
 		int out = ctx.cgi_streamer->cgiStdoutFD();
+		(void)in;
+		(void)out;
+		#if defined(DEBUG)
 		std::fprintf(stderr, "[CGI] begin ok inFD=%d outFD=%d\n", in, out);
+#endif
 	}
 	// <<<----------------------------------------------------------------->>>
 
@@ -347,7 +352,11 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
 	if (has_body) {
 		int inFD  = ctx.cgi_streamer->cgiStdinFD();
 		int outFD = ctx.cgi_streamer->cgiStdoutFD();
+		(void)inFD;
+		(void)outFD;
+		#if defined(DEBUG)
 		std::fprintf(stderr, "[CGI] register POLLOUT for inFD=%d; POLLIN for outFD=%d\n", inFD, outFD);
+#endif
 	} else if (req.getMethod() != "POST") {
 		// For GET/HEAD with no body, close stdin so the CGI won’t hang waiting for EOF.
 		ctx.cgi_streamer->closeStdin();
