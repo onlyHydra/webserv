@@ -428,7 +428,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 						if (cpos == std::string::npos)
 						{
 							char *endp = 0;
-							long p = ::strtol(a.c_str(), &endp, 10);
+							long p = Atoi::strtol(a.c_str(), &endp, 10);
 							if (!a.size() || (endp && *endp) || p <= 0 || p > 65535)
 								throw std::runtime_error("invalid listen port");
 							port = static_cast<int>(p);
@@ -439,7 +439,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 							host = a.substr(0, cpos);
 							std::string pstr = a.substr(cpos + 1);
 							char *endp = 0;
-							long p = ::strtol(pstr.c_str(), &endp, 10);
+							long p = Atoi::strtol(pstr.c_str(), &endp, 10);
 							if (!pstr.size() || (endp && *endp) || p <= 0 || p > 65535)
 								throw std::runtime_error("invalid listen port");
 							port = static_cast<int>(p);
@@ -449,7 +449,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 					{
 						host = a;
 						char *endp = 0;
-						long p = ::strtol(b.c_str(), &endp, 10);
+						long p = Atoi::strtol(b.c_str(), &endp, 10);
 						if (!b.size() || (endp && *endp) || p <= 0 || p > 65535)
 							throw std::runtime_error("invalid listen port");
 						port = static_cast<int>(p);

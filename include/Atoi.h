@@ -28,6 +28,8 @@ class Atoi
 		static unsigned int atoiCidr(const std::string &in);
 		static int	atoiHttpReq(const char *in, bool &error);
 		static size_t atoiPatchOffset(const char *in);
+		static long strtol(const char *in, char **out, int base);
+		static unsigned long strtoul(const char *in, char **out, int base);
 	private:
 		Atoi();
 		~Atoi();

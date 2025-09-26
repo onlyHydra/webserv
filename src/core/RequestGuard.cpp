@@ -35,7 +35,7 @@ static bool parse_content_length(const Headers &hdrs, std::size_t &out) {
 	const std::string &cl = hdrs.get("Content-Length");
 	if (cl.empty()) return false;
 	char *endp = 0;
-	unsigned long v = std::strtoul(cl.c_str(), &endp, 10);
+	unsigned long v = Atoi::strtoul(cl.c_str(), &endp, 10);
 	if (!endp || *endp != '\0') return false;
 	out = static_cast<std::size_t>(v);
 	return true;

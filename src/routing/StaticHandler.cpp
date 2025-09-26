@@ -294,8 +294,8 @@ static std::string buildAutoindex(const std::string &urlBase, const std::string 
 	struct dirent *de;
 	while ((de = ::readdir(d)) != 0)
 	{
-		const char *name = de->d_name;
-		if (!::strcmp(name, ".") || !::strcmp(name, ".."))
+		std::string name = de->d_name;
+		if (name == "." || name == "..")
 			continue;
 		entries.push_back(name);
 	}

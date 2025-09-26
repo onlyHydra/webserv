@@ -154,3 +154,55 @@ size_t	Atoi::atoiPatchOffset(const char *in)
 		return (0);
 	return (result);
 }
+
+long Atoi::strtol(const char *in, char **out, int base)
+{
+	int	i;
+	int	fac;
+	long	result;
+
+	i = 0;
+	fac = 1;
+	if (in == NULL)
+		*out = NULL;
+	while (in[i] == ' ' || in[i] == '\n' || in[i] == '\t' \
+|| in[i] == '\v' || in[i] == '\f' || in[i] == '\r')
+		i++;
+	if (in[i] == '-' || in[i] == '+')
+	{
+		if (in[i] == '-')
+			fac = fac * -1;
+		i++;
+	}
+	result = 0;
+	while (isDigit(in[i]))
+	{
+		result = (result * base) + (in[i] - '0');
+		i++;
+	}
+	*out = const_cast<char *>(in + i);
+	return (result * fac);
+}
+
+unsigned long Atoi::strtoul(const char *in, char **out, int base)
+{
+	int	i;
+	unsigned long	result;
+
+	i = 0;
+	if (in == NULL)
+		*out = NULL;
+	while (in[i] == ' ' || in[i] == '\n' || in[i] == '\t' \
+|| in[i] == '\v' || in[i] == '\f' || in[i] == '\r')
+		i++;
+	if (in[i] == '+')
+		i++;
+	result = 0;
+	while (isDigit(in[i]))
+	{
+		result = (result * base) + (in[i] - '0');
+		i++;
+	}
+	*out = const_cast<char *>(in + i);
+	return (result);
+}

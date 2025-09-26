@@ -32,7 +32,7 @@ static bool parse_size_decimal(const std::string &s, std::size_t &out)
 			return false;
 	}
 	char *endp = 0;
-	unsigned long v = std::strtoul(s.c_str(), &endp, 10);
+	unsigned long v = Atoi::strtoul(s.c_str(), &endp, 10);
 	if (!endp || *endp != '\0')
 		return false;
 	out = static_cast<std::size_t>(v);
