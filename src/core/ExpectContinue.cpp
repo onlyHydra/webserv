@@ -27,7 +27,7 @@ static std::string to_lower(const std::string &s)
 {
 	std::string out(s);
 	for (std::string::size_type i = 0; i < out.size(); ++i)
-		out[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(out[i])));
+		out[i] = (Util::tolower(out[i]));
 	return out;
 }
 

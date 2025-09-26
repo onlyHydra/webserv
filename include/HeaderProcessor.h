@@ -6,6 +6,7 @@
 // #include "FlatHeaders.h"
 #include "Headers.h"
 #include "HttpRequest.h"
+#include "Util.h"
 
 
 struct HeaderCheck

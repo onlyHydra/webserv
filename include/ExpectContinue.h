@@ -2,6 +2,7 @@
 #define EXPECTCONTINUE_H
 
 #include <vector>
+#include "Util.h"
 // #include "FlatHeaders.h"
 class Headers;
 class ChainBuf;

@@ -18,7 +18,7 @@ static std::string path_from_uri(const std::string &uri) {
 static std::string upper_copy(const std::string &in) {
 	std::string out(in);
 	for (std::string::size_type i = 0; i < out.size(); ++i)
-		out[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[i])));
+		out[i] = (toupper(out[i]));
 	return out;
 }
 
@@ -27,7 +27,7 @@ static bool header_has_chunked(const Headers &hdrs) {
 	if (te.empty()) return false;
 	std::string s = te;
 	for (std::size_t i = 0; i < s.size(); ++i)
-		s[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i])));
+		s[i] = (Util::tolower(s[i]));
 	return s.find("chunked") != std::string::npos;
 }
 

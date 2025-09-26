@@ -1,0 +1,49 @@
+Fucntions we can easily write on our own
+strcmp
+tolower
+strtol
+strtoul
+atoi
+toupper
+tolower
+isspace
+floor
+ceil
+memset
+memcpy
+memmove
+memchr
+
+Functions we have to write anew, that are complex
+inet_ntop -> Only for Ipv4?
+
+Simple replacement possible
+time -> std::time
+unlink -> std::remove
+remove -> std::remove
+
+Functions we should just remove entirely
+fsync
+fprintf
+
+Functions we can work around to replace (keep functionality)
+getcwd	-> Save CWD from mains envp in the serverconfig
+		-> Or open(".") and use stat on that 
+rename -> Use open, read, write and close to make a copy of the file and then delete old one with std::remove
+pread -> Can be replaced with std::string.seekg to skipp offset and then read
+getpeername -> We have this information when calling accept(), so store it and access it later
+getsockopt -> Do we really need this?
+
+Rework how we deal with time
+strftime -> Avoid using, replace with std::ostringstreams <<
+strptime -> Avoid using, replace with std::ostringstreams <<
+gettimeofday -> std::time? Concerns with accuracy
+timegm -> Would need a manual, newly written parser
+mktime -> Would need a manual, newly written parser
+gmtime -> Would need a manual, newly written parser
+
+Impossible to replace, functionality will need to be redone
+free -> Just avoid using it. Use new and delete instead
+mkstemp -> Create random name, try open() with O_CREAT|O_EXCL if fails, roll again
+_exit -> Shouldnt be called, nor is kill a real alternative, as it doesnt properly free program memory
+realpath -> Write parser to manually follow paths and normalize string

@@ -21,9 +21,9 @@ bool CiLess::operator()(const string &left, const string &right) const
 	size_t rlen = right.size();
 	for (size_t i = 0; i < llen && i < rlen; ++i)
 	{
-		if (tolower(left[i]) < tolower(right[i]))
+		if (Util::tolower(left[i]) < Util::tolower(right[i]))
 			return true;
-		if (tolower(left[i]) > tolower(right[i]))
+		if (Util::tolower(left[i]) > Util::tolower(right[i]))
 			return false;
 	}
 	return llen < rlen;

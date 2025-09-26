@@ -1,0 +1,131 @@
+------------Easy cases----------------------
+free:
+In IpList and StaticHandler
+Use a fixed size allocated pointer (char path[PATH_MAX]) to avoid needing to use free
+
+std::tolower and tolower:
+ExpectContinue, HeaderProcessor, RequestGuard, CiLess, StaticHandler
+Write our own tolower function, and use that one for both instead
+
+toupper:
+RequestGuard
+Write our own toupper function, and use that one instead
+
+std::isspace:
+ServerConfig, ExpectContinue, HeaderProcessor
+Write our own isspace function, and use that one instead
+
+std::atoi:
+ServerConfig, StaticHandler
+We already have the Atoi class for this, which should have sufficent Functions
+If insufficent, write a new one for this, put it in the Atoi class as static and use that instead
+
+std::floor:
+RateLimiter
+Write our own version
+Since its supposed to return an int, jsut cast the type to an int and you are done
+
+std::ceil:
+RateLimiter
+Write our own version
+Check, if we have the exact value of converting int to that type 8 -> 8.0001,
+if so, then just return that type casted to int
+if not, then return our floor function + 1
+
+strcmp and std::strcmp
+StaticHandler
+Honestly, just cast to std::string and use std::string == std::string comparison instead
+
+strtol
+ServerConfig:
+Write your own Atol and put it in the Atoi class
+
+strtoul
+ServerConfig:
+Write your own Atoul and put it in the Atoi class
+
+memset
+ServerPipeline, ProxyHandler:
+Would be easiest, if we just initialised the structs the few times we used them
+oooooor make your life much harder then it needs to be, and write your own memset
+
+std::memcpy
+Chainbuf.h, CGIStreamer, ChunkedReader:
+Write your own version, or manually copy the data over, both are valid, but the latter would be faster
+
+memmove
+IoRing.h, FileBodyReader:
+Since we only call it twice, just replace those uses with secure assignments
+
+memchr
+ChunkedReader:
+We only use it once, on a char *, so just turn that into a std::string and use its .find() method
+
+fsync
+UploadHandler:
+Just remove it, we really dont need it
+
+std::fprintf
+Debug.h, CGIStreamer, UploadHandler, ClientConnection, EventLoop, CgiHandler
+Remove all traces of this function. we do not need the 70 cases this function is called.
+If you really need to output something, use std::cout << instead
+
+getcwd()
+IpList, StaticHandler, PathUtil
+Store the envp passed in main and its CWD/PWD variable in ServerConfig -> access almsot everywhere
+Then parse that down until we reach the functions that need it
+
+rename()
+UploadHandler
+Since we only ever use it once, maybe you can do something better, but this is how I would do it:
+Use open(), read(), write() and close() to create another file with the target name
+
+pread()
+CGIStreamer:
+Only one instance, so just use filestreams and their .seekg method instead
+
+
+
+getpeername, inet_ntop
+ServerPipeline:
+In AcceptorHandler we already calculate the IP (currently only for ipv4!)
+Store that in the ClientConnection, which we create there, then ServerPipeline should get access to that field
+Then use that field, instead of manually getting info from the socket, and converting it with inet_ntop
+Also, use strings fro this instead of char *
+
+realpath, std::realpath
+ServerConfig, UploadHandler, StaticHandler, PathUtil
+Write a new function, that manually parses its given path, accounting for things like ".", "..", and "//"
+
+------------Debatable cases----------------------
+Theese functions are REQUIRED for Cgi to work, and can NOT be 
+
+std::time
+CGIStreamer, ServerPipeline, HttpResponse, ResponseFactory
+
+std::remove and remove
+HttpRequest, StaticHandler:
+Kind of required, cant delete files without
+
+std::unlink
+Could be replaced with std::removed, but thats just another C workaround
+
+------------So far unsolved------------
+
+_exit
+CgiProcess:
+Cant use exit(), because we dont want child to free parents memory
+kill(getpid()) seems to work, but AI says that its bad
+
+getsockopt -> Do we really need this?
+
+Rework how we deal with time
+strftime -> Avoid using, replace with std::ostringstreams <<
+strptime -> Avoid using, replace with std::ostringstreams <<
+gettimeofday -> std::time? Concerns with accuracy
+timegm -> Would need a manual, newly written parser
+mktime -> Would need a manual, newly written parser
+gmtime -> Would need a manual, newly written parser
+
+Impossible to replace, functionality will need to be redone
+mkstemp -> Create random name, try open() with O_CREAT|O_EXCL if fails, roll again

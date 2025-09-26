@@ -1,0 +1,3 @@
+std::make_pair
+std::hex
+std::remove
