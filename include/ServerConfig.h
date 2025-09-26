@@ -14,6 +14,7 @@ Date: 8/10/2025
 
 #include "VirtualServer.h"   // VirtualServer + Location/CgiSpec models
 #include "IpList.h"
+#include "Util.h"
 
 class ServerConfig
 {

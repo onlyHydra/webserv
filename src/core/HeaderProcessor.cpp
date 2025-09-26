@@ -13,9 +13,9 @@ static std::string to_lower_copy(const std::string &in)
 static std::string trim_copy(const std::string &in)
 {
 	std::string::size_type a = 0, b = in.size();
-	while (a < b && std::isspace(static_cast<unsigned char>(in[a])))
+	while (a < b && Util::isspace(in[a]))
 		++a;
-	while (b > a && std::isspace(static_cast<unsigned char>(in[b - 1])))
+	while (b > a && Util::isspace(in[b - 1]))
 		--b;
 	return in.substr(a, b - a);
 }

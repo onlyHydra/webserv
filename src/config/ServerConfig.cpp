@@ -97,7 +97,7 @@ std::vector<std::string> ServerConfig::tokenize(const std::string &data)
 		}
 
 		// whitespace splits tokens
-		if (std::isspace(static_cast<unsigned char>(ch)))
+		if (Util::isspace(ch))
 		{
 			if (!cur.empty())
 			{

@@ -8,7 +8,7 @@
 static std::string ltrim(const std::string &s)
 {
 	std::string::size_type i = 0, n = s.size();
-	while (i < n && std::isspace(static_cast<unsigned char>(s[i])))
+	while (i < n && Util::isspace(s[i]))
 		++i;
 	return s.substr(i);
 }
@@ -17,7 +17,7 @@ static std::string rtrim(const std::string &s)
 	if (s.empty())
 		return s;
 	std::string::size_type i = s.size();
-	while (i > 0 && std::isspace(static_cast<unsigned char>(s[i - 1])))
+	while (i > 0 && Util::isspace(s[i - 1]))
 		--i;
 	return s.substr(0, i);
 }

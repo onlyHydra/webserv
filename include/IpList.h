@@ -10,6 +10,7 @@ Date: 22/09/2025
 
 # include <string>
 # include <vector>
+# include <limits.h>
 # include <unistd.h>
 # include <sstream>
 # include <stdlib.h>

@@ -20,3 +20,10 @@ char Util::toupper(const char c)
 		return (c - ('a' - 'A'));
 	return (c);
 }
+
+bool Util::isspace(const char c)
+{
+	if (c == ' ' || c == '\f' || c == '\n' || c == '\r' || c == '\t' || c == '\v')
+		return (true);
+	return (false);
+}
