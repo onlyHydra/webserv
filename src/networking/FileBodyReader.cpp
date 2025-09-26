@@ -106,7 +106,7 @@ std::size_t FileBodyReader::consume(const char *data, std::size_t len)
 		{
 			const std::size_t tail = pending.size() - pending_off;
 			if (tail)
-				::memmove(&pending[0], &pending[0] + pending_off, tail);
+				Util::memmove(&pending[0], &pending[0] + pending_off, tail);
 			pending.resize(tail);
 			pending_off = 0;
 		}

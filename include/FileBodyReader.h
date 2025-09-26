@@ -3,6 +3,7 @@
 
 #include "BodyReader.h"
 #include "UniqueFD.h"
+#include "Util.h"
 #include <cstddef>
 #include <string>
 #include <vector>

@@ -107,7 +107,7 @@ bool ChunkedReader::write_payload(const char *p, std::size_t n) {
 			if (!mem_.empty()) {
 				std::size_t old = pending_.size();
 				pending_.resize(old + mem_.size());
-				std::memcpy(&pending_[0] + old, &mem_[0], mem_.size());
+				Util::memcpy(&pending_[0] + old, &mem_[0], mem_.size());
 				mem_.clear();
 				pending_off_ = 0;
 			}
@@ -118,12 +118,12 @@ bool ChunkedReader::write_payload(const char *p, std::size_t n) {
 	if (on_disk_) {
 		std::size_t old = pending_.size();
 		pending_.resize(old + n);
-		std::memcpy(&pending_[0] + old, p, n);
+		Util::memcpy(&pending_[0] + old, p, n);
 		return true; // flushing is separate
 	} else {
 		std::size_t old = mem_.size();
 		mem_.resize(old + n);
-		std::memcpy(&mem_[0] + old, p, n);
+		Util::memcpy(&mem_[0] + old, p, n);
 		return true;
 	}
 }
@@ -214,7 +214,7 @@ std::size_t ChunkedReader::consume(const char *p, std::size_t n) {
 			const char *base  = p + taken;
 			std::size_t avail = n - taken;
 
-			const void *nlv = std::memchr(base, '\n', avail);
+			const void *nlv = Util::memchr(base, '\n', avail);
 			if (!nlv) {
 				// no LF in this chunk; buffer and report progress
 				linebuf_.append(base, avail);

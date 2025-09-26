@@ -2,6 +2,7 @@
 #define CHUNKEDREADER_H
 
 #include "BodyReader.h"
+#include "Util.h"
 #include <cstddef>
 #include <string>
 #include <vector>

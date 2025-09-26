@@ -1274,7 +1274,7 @@ void CGIStreamer::onCgiWritable(int fd)
 		len = CHUNK;
 
 	char small[16384];
-	std::memcpy(small, &tmp[0] + cgi_body_off_, len);
+	Util::memcpy(small, &tmp[0] + cgi_body_off_, len);
 	#if defined(DEBUG)
 	std::fprintf(stderr, "[CGI][WR] mem chunk write attempt len=%zu\n", len);
 	#endif

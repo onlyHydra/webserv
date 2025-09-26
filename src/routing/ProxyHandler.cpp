@@ -55,7 +55,7 @@ static int connect_nonblock(const std::string& host, const std::string& port)
 {
 	struct addrinfo hints; 
 
-	std::memset(&hints, 0, sizeof(hints));
+	Util::memset(&hints, 0, sizeof(hints));
 	
 	hints.ai_family   = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;

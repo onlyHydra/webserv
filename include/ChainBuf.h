@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstddef>
 #include <cstring>   // std::memcpy
+#include "Util.h"
 
 class ChainBuf {
 public:
@@ -21,7 +22,7 @@ bool push_copy(const void* p, std::size_t n) {
 		return false;
 	const std::size_t off = storage_.size();
 	storage_.resize(off + n);
-	std::memcpy(&storage_[0] + off, p, n);
+	Util::memcpy(&storage_[0] + off, p, n);
 	blocks_.push_back(Block(&storage_[0] + off, n, true));
 	byteSize_ += n;
 	return true;
@@ -54,7 +55,7 @@ std::size_t copy_front_into(std::vector<char>& scratch, std::size_t max_bytes_re
 		const Block& b = blocks_[i];
 		std::size_t take = b.len;
 		if (take > (want - copied)) take = want - copied;
-		std::memcpy(&scratch[0] + copied, b.data, take);
+		Util::memcpy(&scratch[0] + copied, b.data, take);
 		copied += take;
 	}
 	if (copied < scratch.size()) scratch.resize(copied);

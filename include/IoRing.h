@@ -11,6 +11,7 @@ Date: 9/1/2025
 #include <vector>
 #include <string.h>
 #include <cstddef>
+#include "Util.h"
 
 class IoRing
 {
@@ -93,7 +94,7 @@ public:
 			return;
 		const std::size_t n = w - r;
 		if (n)
-			::memmove(&buf[0], &buf[0] + r, n);
+			Util::memmove(&buf[0], &buf[0] + r, n);
 		r = 0;
 		w = n;
 	}

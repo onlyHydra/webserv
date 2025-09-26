@@ -1,6 +1,8 @@
 #ifndef SERVER_PIPELINE_H
 #define SERVER_PIPELINE_H
 
+#include "Util.h"
+
 // Forward declarations (avoid heavy includes / cycles)
 class ServerConfig;
 class HttpRequest;

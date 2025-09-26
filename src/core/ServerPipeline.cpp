@@ -35,10 +35,10 @@ date: 8/10/2025
 // Grab client IP from the ClientConnection*, fallback to getsockname/getpeername
 static std::string getPeerIPFromFD(int fd) {
     sockaddr_storage ss;
-    std::memset(&ss, 0, sizeof ss);
+    Util::memset(&ss, 0, sizeof ss);
     socklen_t sl = (socklen_t)sizeof ss;
     if (getpeername(fd, (sockaddr*)&ss, &sl) == 0) {
-        char buf[INET6_ADDRSTRLEN]; std::memset(buf, 0, sizeof buf);
+        char buf[INET6_ADDRSTRLEN]; Util::memset(buf, 0, sizeof buf);
         if (ss.ss_family == AF_INET) {
             inet_ntop(AF_INET, &((sockaddr_in*)&ss)->sin_addr, buf, sizeof buf);
         } else if (ss.ss_family == AF_INET6) {
