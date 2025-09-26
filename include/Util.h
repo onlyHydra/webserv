@@ -13,6 +13,8 @@ class Util {
 		static char tolower(const char c);
 		static char toupper(const char c);
 		static bool isspace(const char c);
+		static int	floor(double d);
+		static int	ceil(double d);
 	private:
 		Util();
 		~Util();

@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <cstddef>
+#include "Util.h"
 
 struct RateBucketCfg {
     double      rps;          // tokens per second

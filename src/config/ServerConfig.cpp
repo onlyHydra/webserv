@@ -495,7 +495,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 					if (i + 1 >= N)
 						throw std::runtime_error("error_page <status> <path>");
 					validateErrorStatusOrThrow(tok[i]);
-					int status = ::atoi(tok[i++].c_str());
+					int status = Atoi::atoi(tok[i++].c_str());
 					const std::string path = tok[i++];
 					if (i < N && tok[i] == ";")
 						++i;
@@ -692,7 +692,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 								}
 								else
 								{
-									to = ::atoi(tok[i++].c_str());
+									to = Atoi::atoi(tok[i++].c_str());
 								}
 							}
 							if (i < N && tok[i] == ";")

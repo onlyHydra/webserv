@@ -27,3 +27,20 @@ bool Util::isspace(const char c)
 		return (true);
 	return (false);
 }
+
+int Util::floor(double d)
+{
+	int i = static_cast<int>(d);
+	if (d < 0 && d != static_cast<double>(i))
+		return i - 1;
+	return i;
+}
+
+int Util::ceil(double d)
+{
+	int i = static_cast<int>(d);
+	if (d > 0 && d != static_cast<double>(i))
+		return i + 1;
+	return i;
+}
+

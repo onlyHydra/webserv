@@ -609,7 +609,7 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
             if (!tok.empty() && tok[0] == '=') {
                 // terminal -> record code, skip as a FS candidate
                 if (tok.size() > 1) {
-                    terminal_code = std::atoi(tok.c_str() + 1);
+                    terminal_code = Atoi::atoi(tok.c_str() + 1);
                     if (terminal_code <= 0) terminal_code = 404;
                 } else {
                     terminal_code = 404;

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   RateLimiter.cpp                                    :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: vvelikov <vvelikov@student.42.fr>          +#+  +:+       +#+        */
+/*   By: sikunne <sikunne@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/25 12:45:58 by vvelikov          #+#    #+#             */
-/*   Updated: 2025/09/25 14:32:36 by vvelikov         ###   ########.fr       */
+/*   Updated: 2025/09/26 15:22:42 by sikunne          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -52,17 +52,17 @@ RateDecision RateLimiter::allow(const std::string& ip, unsigned long long now_ms
     // Consume or compute retry
     if (node.tokens >= 1.0) {
         node.tokens -= 1.0;
-        int rem = (int)std::floor(node.tokens);
+        int rem = Util::floor(node.tokens);
         if (rem < 0) rem = 0;
-        int lim = (int)std::floor(cfg_.rps * 60.0 + 0.5); // rpm
+        int lim = Util::floor(cfg_.rps * 60.0 + 0.5); // rpm
         return RateDecision(true, 0, rem, lim);
     } else {
         double needed = 1.0 - node.tokens;
         double secs   = (cfg_.rps > 0.0) ? (needed / cfg_.rps) : 1.0;
-        int retry     = (int)std::ceil(secs);
+        int retry     = Util::ceil(secs);
         if (retry < 1) retry = 1;
         int rem = 0;
-        int lim = (int)std::floor(cfg_.rps * 60.0 + 0.5);
+        int lim = Util::floor(cfg_.rps * 60.0 + 0.5);
         return RateDecision(false, retry, rem, lim);
     }
 }
