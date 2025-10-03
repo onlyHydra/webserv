@@ -189,42 +189,6 @@ void EventLoop::removeFD(int fd)
 
 /* 
 
-std::vector<std::pair<int,short>> EventLoop::handleEvents(int timeout_ms)
-
-Wrapper for poll that waits up to timeout_ms, then builds a vector of 
-(fd, revents) pairs for ready descriptors. Filters out POLLNVAL invalid results. 
-Returning a vector decouples event collection from dispatching, letting higher-level 
-code choose how to iterate and handle them. This separation supports cases like unit 
-testing or manual multiplexing without full loop control. It’s lighter than the full run() loop, 
-often used when external scheduling drives the event loop or when integrating into a 
-larger system that already has its own control loop.
-
-
-*/
-
-// !!!Delete this function in the final build, its only for catch2 tests!!!
-std::vector<std::pair<int, short> > EventLoop::handleEvents(int timeout_ms)
-{
-	std::vector<std::pair<int, short> > ev;
-	if (_pfds.empty())
-		return ev;
-
-	int rc = ::poll(&_pfds[0], _pfds.size(), timeout_ms);
-	if (rc <= 0)
-		return ev;
-
-	ev.reserve(_pfds.size());
-	for (size_t i = 0; i < _pfds.size(); ++i)
-	{
-		if (_pfds[i].revents && !(_pfds[i].revents & POLLNVAL))
-			ev.push_back(std::make_pair(_pfds[i].fd, _pfds[i].revents));
-	}
-	return ev;
-}
-
-
-/* 
-
 void EventLoop::run(int timeout_ms)
 
 The main loop: resets _stop, then repeatedly polls all registered descriptors 
