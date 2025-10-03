@@ -34,9 +34,6 @@ public:
 	bool modFD(int fd, short events);
 	void removeFD(int fd);
 
-	// !!!Delete this function in the final build, its only for catch2 tests!!!
-	std::vector<std::pair<int, short> > handleEvents(int timeout_ms);
-
 	void run(int timeout_ms, Server *srv);
 	/**
 	 * Run for one more second, not accepting new connections
