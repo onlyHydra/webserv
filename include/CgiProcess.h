@@ -21,12 +21,6 @@ public:
 	CgiProcess();
 	~CgiProcess();
 
-	bool spawn(const std::string& bin,
-			const std::string& script,
-			char* const* argv,
-			char* const* envp,
-			int timeout_ms);
-
 	// Convenience overload
 	bool spawn(const CgiSpec& spec,
 			const std::string& scriptPath,

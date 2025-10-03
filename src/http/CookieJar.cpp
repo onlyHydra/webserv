@@ -20,30 +20,6 @@ CookieJar::~CookieJar()
 	this->cookies.clear();
 }
 
-void CookieJar::setCookieHeaders(
-	Headers &h, string key, string value, string path,
-	int maxAge, bool httpOnly, bool secure, string sameSite)
-{
-	(void)h;
-	(void)path;
-	(void)maxAge;
-	(void)httpOnly;
-	(void)secure;
-	(void)sameSite;
-	(void)key;
-	(void)value;
-}
-
-void CookieJar::parseFrom(Headers &target)
-{
-	map<string, string, CiLess>::iterator it;
-	map<string, string, CiLess>::iterator end;
-
-	end = target.getEnd();
-	for (it = target.getBegin(); it != end; it++)
-		this->set(target, std::string(it->first) + "=" + std::string(it->second));
-}
-
 /**
  * @brief Get a key-value pair from the source string
  * @param source Source string to remove substrings from
@@ -135,11 +111,6 @@ int	CookieJar::set(Headers &head, const std::string &source)
 	return (HTTP_OK);
 }
 
-void CookieJar::erase(const string &key)
-{
-	this->cookies.erase(key);
-}
-
 void CookieJar::clear(void)
 {
 	this->cookies.clear();
@@ -201,23 +172,6 @@ bool CookieJar::keyExists(string key) const
 	if (!this->cookies.count(key))
 		return (false);
 	return (true);
-}
-
-void CookieJar::show(ostream &out) const
-{
-	map<string, string, CiLess>::const_iterator it;
-
-	for (it = this->cookies.begin(); it != this->cookies.end(); it++)
-	{
-		if (it != this->cookies.begin())
-			out << endl;
-		out << "[" << it->first << "] : [" << it->second << "]";
-	}
-}
-
-int CookieJar::getLength(void) const
-{
-	return (this->cookies.size());
 }
 
 bool CookieJar::isEmpty(void) const

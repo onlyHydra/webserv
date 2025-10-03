@@ -56,29 +56,6 @@ int EventLoop::indexOfFD(int fd) const
 	return -1;
 }
 
-
-/* 
-
-bool EventLoop::addFD(int fd, short events)
-
-Convenience overload forwarding to addFD(fd, events, static_cast<Handler*>(0)). 
-It simplifies cases where no handler is attached, just event interest. 
-By centralizing FD addition, it enforces consistent initialization of pollfd 
-structures and prevents duplicate registrations. Returning a bool gives callers quick 
-feedback on success/failure. This version is mostly syntactic sugar but avoids 
-repeating NULL arguments in call sites, improving readability for basic cases like 
-registering listening sockets or temporary descriptors without associated handlers. 
-It’s part of the loop’s usability layer.
-
-
-*/
-
-bool EventLoop::addFD(int fd, short events)
-{
-	// disambiguate to the Handler* overload
-	return addFD(fd, events, static_cast<Handler *>(0));
-}
-
 /* 
 
 bool EventLoop::addFD(int fd, short events, Handler h)*
@@ -108,27 +85,6 @@ bool EventLoop::addFD(int fd, short events, Handler *h)
 	return true;
 }
 
-/* 
-
-bool EventLoop::addFD(int fd, short events, ClientConnection owner)*
-
-Variation that attaches ownership instead of a handler. 
-It still calls the Handler* version to register with poll, then maps fd → ClientConnection* in owners_. 
-This mapping is useful when multiple descriptors (like CGI stdin/stdout) 
-belong to the same client connection; later removal or cleanup can operate by owner rather than fd alone. 
-This design enables higher-level cleanup (removeOwner) to safely sweep all descriptors associated with a given connection, 
-preventing leaks when connections close unexpectedly. 
-It extends the loop’s API for lifecycle management while keeping base poll operations consistent.
-
-*/
-
-bool EventLoop::addFD(int fd, short events, ClientConnection *owner)
-{
-	if (!addFD(fd, events, static_cast<Handler *>(0)))
-		return false;
-	owners_[fd] = owner;
-	return true;
-}
 
 /* 
 
@@ -365,44 +321,6 @@ bool EventLoop::setOwner(int fd, ClientConnection *owner)
 		return false;
 	owners_[fd] = owner;
 	return true;
-}
-
-
-/* 
-
-void EventLoop::clearOwner(int fd)
-
-Removes the fd→connection mapping without removing the fd from the poll set. 
-This is used when the fd is still monitored but no longer considered logically 
-owned by a connection, e.g., during shutdown or after handoff. 
-It avoids confusion during teardown and ensures the server doesn’t mis-associate descriptors 
-with destroyed objects. Keeping explicit owner clearing helps prevent use-after-free bugs where a 
-lingering mapping might later be dereferenced incorrectly.
-
-*/
-
-
-void EventLoop::clearOwner(int fd) { 
-	owners_.erase(fd); 
-}
-
-/* 
-
-ClientConnection EventLoop::ownerOf(int fd) const*
-
-Returns the owning ClientConnection* for a given fd, 
-or NULL if none. This is a quick lookup tool when a descriptor activity 
-needs to be attributed back to its higher-level connection object. 
-It’s essential when cleanup must close multiple fds for a connection or 
-when propagating errors upwards. Centralizing it in the loop avoids duplicating 
-maps across handlers and keeps ownership bookkeeping consistent.
-
-*/
-
-ClientConnection *EventLoop::ownerOf(int fd) const
-{
-	std::map<int, ClientConnection *>::const_iterator it = owners_.find(fd);
-	return (it == owners_.end() ? 0 : it->second);
 }
 
 

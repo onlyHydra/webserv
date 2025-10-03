@@ -57,21 +57,6 @@ class CookieJar
 		~CookieJar();
 
 		/**
-		 * UNUSED
-		 * ?
-		 * PLACEHOLDER / MISSING FUNCTION
-		 * NEEDS TO BE IMPLEMENTED LATER
-		 */
-		void	setCookieHeaders(Headers &h, string name, string value, string path, int maxAge, bool httpOnly, bool secure, string sameSite);
-
-		/**
-		 * UNUSED
-		 * Merges Header data into CookieJar data
-		 * @param target: Target Header to use as source
-		 */
-		void	parseFrom(Headers &target);
-
-		/**
 		 * @brief Builds the CookieJars content from the given String
 		 * @param head Header, which will monitor the HEADER_BYTE_LIMIT and HEADER_ENTRY_LIMIT
 		 * @param source Source string, that holds key-value pairs as "key=value; " repeating
@@ -80,12 +65,6 @@ class CookieJar
 		 * @returns 200 HTTP_OK if nominal
 		 */
 		int	set(Headers &head, const std::string &source);
-
-		/**
-		 * @brief Removes key-value pair from CookieJar
-		 * @param key: Key to remove
-		 */
-		void	erase(const string &key);
 
 		/**
 		 * @brief Deletes all entries in CookieJar
@@ -122,19 +101,6 @@ class CookieJar
 		 * @returns true if key exists (is registered)
 		 */
 		bool	keyExists(string key) const;
-	
-		/**
-		 * UNUSED
-		 * DEBUG FUNCTION
-		 * @brief Displays the CookieJar on output stream
-		 * @param out Output stream to display on
-		 */
-		void	show(ostream &out) const;
-
-		/**
-		 * @returns Amount of entries in CookieJar
-		 */
-		int		getLength(void) const;
 
 		/**
 		 * @returns Boolean wether cookies is empty or not

@@ -64,7 +64,6 @@ public:
 private:
 	// Helpers (std98):
 	static std::string join_path(const std::string &a, const std::string &b);
-	static std::string make_template(const std::string &dir, const std::string &prefix);
 
 private:
 	// Accounting

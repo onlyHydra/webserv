@@ -105,10 +105,7 @@ public:
 	 *
 	 * Returns:
 	 *  - pointer to the matched Location or NULL if none matched.
-	 */
-	static const Location *matchLocation(const VirtualServer &vs, const std::string &path);
-
-	/**
+	 * 
 	 * Variant of matchLocation that also returns the matched prefix string.
 	 *
 	 * The matched_prefix output is set to the Location::path_prefix of the

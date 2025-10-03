@@ -30,9 +30,7 @@ public:
 	};
 
 	// Register / modify / remove a file descriptor
-	bool addFD(int fd, short events);						   // legacy
 	bool addFD(int fd, short events, Handler *h);			   // preferred
-	bool addFD(int fd, short events, ClientConnection *owner); // optional owner map
 	bool modFD(int fd, short events);
 	void removeFD(int fd);
 
@@ -52,8 +50,6 @@ public:
 
 	// Owner helpers (optional)
 	bool setOwner(int fd, ClientConnection *owner);
-	void clearOwner(int fd);
-	ClientConnection *ownerOf(int fd) const;
 	int indexOfFD(int fd) const;
 	void removeOwner(ClientConnection *owner);
 	std::vector<pollfd> getPfds(void);

@@ -47,7 +47,6 @@ public:
 		// Helpers
 		void setStatus(int code);                       // infers reason
 		void setStatus(int code, const std::string& r); // explicit reason
-		int  getStatusCode() const;
 		const std::string& getReason() const;
 
 		void setBody(const std::string& s);

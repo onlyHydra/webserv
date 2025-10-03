@@ -37,12 +37,6 @@ public:
                           int io_idle_timeout_ms,
                           const HttpRequest& req,
                           const std::string& target_path);
-    bool beginProxyTunnel(int upstream_fd,
-                          const std::string& host,
-                          const std::string& port,
-                          int connect_timeout_ms,
-                          int io_idle_timeout_ms,
-                          const HttpRequest& req);
 
     void onTick(unsigned long long now_ms);
     bool isClosed() const;
@@ -67,7 +61,6 @@ public:
     int getFD() { return io.getFD(); }
     
     bool pumpCgiToSocket(std::size_t max_bytes = 128u * 1024u);
-    void drainRingIntoBody();
     void forceTerminate();
     
 private:

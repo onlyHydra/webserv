@@ -168,19 +168,6 @@ class HttpRequest
 		~HttpRequest();
 
 		/**
-		 * @returns wether session is still alive
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		bool	keepAlive(void) const;
-
-		/**
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		bool	headerAsSize(string k, size_t &v) const;
-
-		/**
 		 * @brief Adds data to the Requests Body
 		 * @param data Body to append
 		 * @param len Amount of characters to append
@@ -189,12 +176,6 @@ class HttpRequest
 		 */
 		bool appendBody(const char* data, std::size_t len);
     	// const std::vector<char>& getBody() const;   // you likely already have this
-
-		/**
-		 * For Later
-		 * PLACEHOLDER
-		 */
-		string	extension() const;
 
 		/**
 		 * ----------------------------------------------------------------------
@@ -228,11 +209,6 @@ class HttpRequest
 		bool	parse(const char* data, size_t n);
 
 		/**
-		 * @returns true if Headers are finished (State at BODY or OVER)
-		 */
-		bool	headersDone(void);
-
-		/**
 		 * @returns method, meaning the type of request
 		 */
 		string	getMethod(void) const;
@@ -254,11 +230,6 @@ class HttpRequest
 		string	getQuery(void) const;
 
 		/**
-		 * @returns Sesion ID
-		 */
-		string	getSessId(void) const;
-
-		/**
 		 * @returns Length of how many bytes should be in body
 		 */
 		size_t getBodyLength(void) const;
@@ -267,11 +238,6 @@ class HttpRequest
 		 * @returns http version(s)
 		 */
 		string	getHttpVer(void) const;
-
-		/**
-		 * @returns buffer from what is left of parsing
-		 */
-		string getBuffer(void) const;
 
 		std::string takeBuffer();
 
@@ -300,32 +266,7 @@ class HttpRequest
 		// Remove body file (if any) and reset state
 		void	cleanupBodyFile(void);
 
-		/**
-		 * @returns State of the Http Request
-		 */
-		enum HttpRequestState getState(void) const;
-
-		/**
-		 * @returns Amount of bytes this request has read so far
-		 */
-		size_t getTotalBytesRead(void) const;
-
-		/**
-		 * @returns Amount of bytes that were handled in total from this Request
-		 * (meaning the amount of bytes you could free in total from your buffer)
-		 */
-		size_t getTotalBytesHandled(void) const;
-
-		/**
-		 * @returns Amount of bytes that was "handled" in the last parse() call
-		 * @returns this represents the amount of bytes that can safely be removed from the calling buffer
-		 */
-		size_t getBytesHandledLast(void) const;
-
-		void setKeepAlive(bool state);
 		std::vector<char>& bodyRef() { return body; }   
-
-		void reset();
 };
 
 /**

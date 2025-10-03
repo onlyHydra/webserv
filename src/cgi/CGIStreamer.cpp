@@ -530,58 +530,6 @@ void CGIStreamer::closeStdout()
 	}
 }
 
-
-/* 
-
-void reset()
-
-Returns the streamer to a pristine state: closes both pipe fds, 
-clears failure/active flags, resets body offsets and temp file handle/path, 
-wipes header parser state, cookies, output buffers, chunked flags, deadlines, 
-and waterline hints. Designed for reuse across keep-alive requests or after errors, 
-it ensures no cross-request contamination. Clearing everything centrally simplifies 
-higher-level code and prevents subtle bugs where previous 
-CGI state leaks into a new request.
-
-*/
-
-void CGIStreamer::reset()
-{
-	// stop timers/mark inactive AFTER fds are gone
-	closeStdin();
-	closeStdout();
-
-	failed_ = false;
-	cgi_active_ = false;
-
-	cgi_body_off_ = 0;
-	if (body_fd_ >= 0)
-	{
-		::close(body_fd_);
-		body_fd_ = -1;
-	}
-	body_file_off_ = 0;
-	body_path_.clear();
-
-	hdr_state_ = HDR_WAITING;
-	cgi_header_accum_.clear();
-	saw_content_type_ = false;
-	status_code_ = 0;
-	status_reason_.clear();
-	set_cookie_.clear();
-
-	http_head_queued_ = false;
-	chunked_mode_ = true;
-	sent_final_chunk_ = false;
-	out_buf_.clear();
-	out_off_ = 0;
-
-	client_out_bytes_ = 0;
-	write_deadline_ms_ = 0;
-	hdr_deadline_.clear();
-	total_deadline_.clear();
-}
-
 /* 
 
 void resetWriteDeadline()
@@ -746,27 +694,6 @@ bool CGIStreamer::beginCgi(const CgiSpec &spec,
 	return true;
 }
 
-
-
-
-/* 
-
-
-void startHeaderPhase(unsigned long long now_ms)
-
-Re-arms the header-phase deadline from now_ms. 
-Useful if the pipeline wants to allow fresh time for header arrival 
-(e.g., after initial setup). If headers still don’t arrive before the new deadline, onTick() 
-will time out and fail safely. Keeping this separate from 
-beginCgi provides flexible timeout policy without respawning.
-
-*/
-
-void CGIStreamer::startHeaderPhase(unsigned long long now_ms)
-{
-	// Re-arm header deadline with default 3s (same as beginCgi()).
-	hdr_deadline_.reset(now_ms, 10000);
-}
 
 
 /* 

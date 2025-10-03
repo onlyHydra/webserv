@@ -24,7 +24,6 @@ class ServerConfig
 	
 
 		// IO / entry points
-		bool canOpen(const char *path) const;
 		void parseFile(const std::string &path);
 
 		// Optional convenience if you want to parse from an in-memory string

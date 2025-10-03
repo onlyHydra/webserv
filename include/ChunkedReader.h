@@ -55,7 +55,6 @@ private:
 	bool ensure_spill_file();
 	bool write_payload(const char* p, std::size_t n);
 	bool parse_size_line();
-	bool parse_trailers();
 
 private:
 	// Parser states

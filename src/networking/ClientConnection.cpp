@@ -101,84 +101,6 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 }
 
 
-
-
-/*
-
-void ClientConnection::drainRingIntoBody()
-
-Moves bytes already read into the input ring into the request body sink
-(RAM or temp-file). If a temp file is active, it writes in a loop handling
-EINTR and unlikely regular-file EAGAIN; on hard error, it fails the request.
-Updates body_received_, advances the ring with consumed, and stops when the known length is satisfied.
-This helper is useful when body bytes arrived together with headers or when scheduling prefers staged draining.
-Keeping this logic separate avoids mixing ring manipulation with parser code and ensures the server
-honors Content-Length precisely without blocking.
-
-
-*/
-
-void ClientConnection::drainRingIntoBody()
-{
-	IoRing &ring = io.getInputRing();
-
-	while (true)
-	{
-		std::size_t avail = ring.readAvail();
-		if (avail == 0)
-			break;
-
-		const char *p = ring.readPtr();
-		if (!p)
-			break; // nothing contiguous to read right now
-
-		std::size_t take = avail;
-
-		if (body_fd_ >= 0)
-		{
-			std::size_t off = 0;
-			while (off < take)
-			{
-				ssize_t w = ::write(body_fd_, p + off, take - off);
-				if (w > 0)
-				{
-					off += static_cast<std::size_t>(w);
-				}
-				else if (w < 0 && errno == EINTR)
-				{
-					continue;
-				}
-				else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-				{
-					// Unlikely for regular files; stop this tick.
-					break;
-				}
-				else
-				{
-					// Hard error writing body to disk.
-					fail(500, "Failed to buffer request body");
-					return;
-				}
-			}
-			take = off; // actually consumed from ring
-		}
-		else
-		{
-			// RAM path (optional): e.g. body_vec_.insert(body_vec_.end(), p, p + take);
-		}
-
-		body_received_ += take;
-		ring.consumed(take); // NOTE: 'consumed', not 'consume'
-
-		// If we know the expected length, stop when done
-		if (body_expected_ != static_cast<std::size_t>(-1) &&
-			body_received_ >= body_expected_)
-		{
-			break;
-		}
-	}
-}
-
 /*
 
 ClientConnection::~ClientConnection()
@@ -240,33 +162,6 @@ static int get_so_error(int fd)
         return 0; // No error, socket is connected
     }
     return errno; // Error code from last failure
-}
-
-
-/*
-
-bool ClientConnection::beginProxyTunnel(…, const HttpRequest& req) (no target path)
-
-Convenience overload that delegates to the full version, passing an empty target path so the
-function derives it from the request (path plus optional query). This keeps handler code simple
-when the upstream target equals the client’s path. Introducing a small wrapper avoids duplicating derivation logic,
-ensures consistent header construction for upstream requests, and preserves a single place for timeout and buffer initialization.
-It returns true to indicate the tunnel has been staged and will be driven asynchronously by the per-tick pump (serviceProxyTunnel).
-
-
-*/
-
-bool ClientConnection::beginProxyTunnel(int upstream_fd,
-										const std::string &host,
-										const std::string &port,
-										int connect_timeout_ms,
-										int io_idle_timeout_ms,
-										const HttpRequest &req)
-{
-	// Delegate to the overload that accepts a target path; empty means derive from req.
-	return beginProxyTunnel(upstream_fd, host, port,
-							connect_timeout_ms, io_idle_timeout_ms,
-							req, std::string());
 }
 
 /*

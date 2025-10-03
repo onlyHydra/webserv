@@ -23,7 +23,6 @@ Date: 8/10/2025
 class Atoi
 {
 	public:
-		static int atoi(const std::string &in);
 		static unsigned int atoiIp(const std::string &in);
 		static unsigned int atoiCidr(const std::string &in);
 		static int	atoiHttpReq(const char *in, bool &error);

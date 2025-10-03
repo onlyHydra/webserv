@@ -41,7 +41,6 @@ class MultipartReader {
 		enum State { S_PREAMBLE, S_BOUNDARY, S_HEADERS, S_DATA, S_AFTER, S_DONE, S_ERROR };
 
 		// Helpers
-		static bool ieq(char a, char b);
 		static std::string trim(const std::string& s);
 		static bool parseContentDisposition(const std::string& v,
 											std::string& name,

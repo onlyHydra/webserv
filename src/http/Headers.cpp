@@ -69,18 +69,6 @@ bool Headers::set(std::string key, std::string value)
 	return (true);
 }
 
-bool Headers::mergeFrom(Headers &src)
-{
-	std::map<std::string, std::string, CiLess>::iterator it;
-	bool okay = true;
-
-	for (it = src.getBegin(); okay && it != src.getEnd(); it++)
-	{
-		okay = this->set(it->first, it->second);
-	}
-	return (okay);
-}
-
 void Headers::erase(const std::string &key)
 {
 	if (!keyExists(key))
@@ -98,33 +86,11 @@ void Headers::clear(void)
 	this->realEntryCount = 0;
 }
 
-std::map<std::string, std::string, CiLess>::iterator Headers::getBegin(void)
-{
-	return (this->map.begin());
-}
-
-std::map<std::string, std::string, CiLess>::iterator Headers::getEnd(void)
-{
-	return (this->map.end());
-}
-
 bool Headers::keyExists(std::string key) const
 {
 	if (!this->map.count(key))
 		return (false);
 	return (true);
-}
-
-void Headers::show(std::ostream &out) const
-{
-	std::map<std::string, std::string, CiLess>::const_iterator it;
-
-	for (it = this->map.begin(); it != this->map.end(); it++)
-	{
-		if (it != this->map.begin())
-			out << std::endl;
-		out << "[" << it->first << "] : [" << it->second << "]";
-	}
 }
 
 std::string Headers::serialize(void) const
@@ -150,35 +116,9 @@ std::string Headers::get(std::string key) const
 	std::map<std::string, std::string, CiLess>::const_iterator it = this->map.find(key);
 	return (it->second);
 }
-
-int Headers::getLength(void) const
-{
-	return (this->map.size());
-}
-
 bool Headers::isEmpty(void) const
 {
 	return (this->map.empty());
-}
-
-size_t Headers::getByteSize(void) const
-{
-	return (this->byteSize);
-}
-
-size_t Headers::getRealByteSize(void) const
-{
-	return (this->realByteSize);
-}
-
-size_t Headers::getEntryCount(void) const
-{
-	return (this->entryCount);
-}
-
-size_t Headers::getRealEntryCount(void) const
-{
-	return (this->realEntryCount);
 }
 
 std::ostream &operator<<(std::ostream &out, const Headers &target)

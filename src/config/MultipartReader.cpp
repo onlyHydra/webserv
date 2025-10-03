@@ -41,32 +41,6 @@ for correctness in streaming, non-blocking scenarios.
 
 MultipartReader::MultipartReader() : st_(S_PREAMBLE) {}
 
-
-
-/* 
-
-bool MultipartReader::ieq(char a, char b)
-
-ASCII case-insensitive character comparison used for header token logic. 
-It manually folds A–Z to lowercase via arithmetic and compares bytes. 
-Multipart header names (Content-Disposition, etc.) are ASCII and case-insensitive by spec, 
-so a locale-free comparison avoids surprises and overhead. 
-Encapsulating the behavior avoids repeatedly calling std::tolower (locale-dependent) 
-and keeps the branch-free fast path. Although small, it underpins 
-reliable recognition of keys across clients that vary capitalization, 
-ensuring downstream parsing (e.g., disposition analysis) sees normalized tokens and behaves consistently.
-
-*/
-
-bool MultipartReader::ieq(char a, char b)
-{
-	if (a >= 'A' && a <= 'Z')
-		a = char(a - 'A' + 'a');
-	if (b >= 'A' && b <= 'Z')
-		b = char(b - 'A' + 'a');
-	return a == b;
-}
-
 /* 
 
 std::string MultipartReader::trim(const std::string& s)

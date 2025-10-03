@@ -78,12 +78,6 @@ class Headers
 		bool set(std::string key, std::string value);
 
 		/**
-		 * Merge Header into this one
-		 * @param src: Source Header that will be added on this one
-		 */
-		bool mergeFrom(Headers &src);
-
-		/**
 		 * Removes key from Header
 		 * @param key: Key to remove
 		 */
@@ -95,27 +89,11 @@ class Headers
 		void clear();
 
 		/**
-		 * @returns Iterator to beginning of Header
-		 */
-		std::map<std::string, std::string, CiLess>::iterator getBegin();
-
-		/**
-		 * @returns Iterator to end of Header
-		 */
-		std::map<std::string, std::string, CiLess>::iterator getEnd();
-
-		/**
 		 * Returns whether key exists
 		 * @param key: Key to search
 		 * @returns true if exists, false if not
 		 */
 		bool keyExists(std::string key) const;
-
-		/**
-		 * Displays the Header on output
-		 * @param out: Output stream to show on
-		 */
-		void show(std::ostream &out) const;
 
 		/**
 		 * @returns string containing all key-values of Header
@@ -130,35 +108,9 @@ class Headers
 		std::string get(std::string key) const;
 
 		/**
-		 * @returns Amount of entries in Header
-		 */
-		int getLength() const;
-
-		/**
 		 * @returns Boolean whether map is empty or not
 		 */
 		bool isEmpty() const;
-
-		/**
-		 * @returns Amount of Bytes the Header and Cookies currently have
-		 */
-
-		std::size_t getByteSize() const;
-		/**
-		 * @returns Amount of Bytes the Header currently has
-		 */
-
-		size_t getRealByteSize(void) const;
-
-		/**
-		 * @returns Amount of Entries in Header and Cookies
-		 */
-		size_t getEntryCount(void) const;
-
-		/**
-		 * @returns Amount of Entries in Header
-		 */
-		size_t getRealEntryCount(void) const;
 
 	private:
 		std::map<std::string, std::string, CiLess> map;

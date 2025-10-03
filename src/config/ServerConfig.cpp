@@ -62,12 +62,6 @@ void ServerConfig::push_back(const VirtualServer &vs)
 	_servers.push_back(vs);
 }
 
-bool ServerConfig::canOpen(const char *path) const
-{
-	std::ifstream f(path);
-	return f.good();
-}
-
 std::string ServerConfig::readWholeFile(const std::string &path)
 {
 	std::ifstream f(path.c_str(), std::ios::in | std::ios::binary);
@@ -496,7 +490,7 @@ void ServerConfig::parseTokens(const std::vector<std::string> &tok)
 					if (i + 1 >= N)
 						throw std::runtime_error("error_page <status> <path>");
 					validateErrorStatusOrThrow(tok[i]);
-					int status = ::atoi(tok[i++].c_str());
+					int status = std::atoi(tok[i++].c_str());
 					const std::string path = tok[i++];
 					if (i < N && tok[i] == ";")
 						++i;

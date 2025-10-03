@@ -122,11 +122,6 @@ void HttpResponse::setStatus(int code, const std::string &r)
 	reason = r;
 }
 
-int HttpResponse::getStatusCode() const
-{
-	return status;
-}
-
 const std::string &HttpResponse::getReason() const
 {
 	return reason;

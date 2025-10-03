@@ -31,36 +31,6 @@ date: 8/10/2025
 
 /* 
 
-#ifdef KEEP_HOST_HELPER static std::string hostWithoutPort(const std::string &hostHdr)
-This helper normalizes the Host header into a canonical server name by removing any 
-explicit port suffix while correctly supporting IPv6 bracket notation. 
-For IPv6, it keeps the [addr] portion and discards a following :port; for IPv4/hostnames, 
-it splits on the last colon. Normalization matters because CGI variables such as 
-SERVER_NAME and SERVER_PORT are derived from Host, 
-and inconsistent parsing produces incorrect environment values. By centralizing that logic, 
-we avoid duplicating tricky edge-case handling across the codebase and ensure consistent 
-behavior across platforms and requests.
-
-*/
-
-#ifdef KEEP_HOST_HELPER
-static std::string hostWithoutPort(const std::string &hostHdr)
-{
-	if (hostHdr.empty())
-		return hostHdr;
-	if (hostHdr[0] == '[')
-	{
-		std::string::size_type rb = hostHdr.find(']');
-		return (rb != std::string::npos) ? hostHdr.substr(0, rb + 1) : hostHdr;
-	}
-	std::string::size_type c = hostHdr.find(':');
-	return (c == std::string::npos) ? hostHdr : hostHdr.substr(0, c);
-}
-#endif
-
-
-/* 
-
 int CgiHandler::buildEnv(const HttpRequest&, const VirtualServer&, std::vectorstd::string
 &) const Builds a complete CGI environment array (envp) from HTTP request and server context.
 It derives SERVER_NAME and SERVER_PORT from Host when provided (handling IPv6 brackets and explicit ports),

@@ -25,38 +25,6 @@ static bool	isDigit(char in)
 }
 
 /**
- * @brief Simple, basic string to int conversion
- * @param in String to convert
- * @returns Integer based on the input (0 if error)
- * Skips whitespace, handles one sign, no overflow checks
- */
-int	Atoi::atoi(const std::string &in)
-{
-	int	i;
-	int	fac;
-	int	result;
-
-	i = 0;
-	fac = 1;
-	while (in[i] == ' ' || in[i] == '\n' || in[i] == '\t' \
-|| in[i] == '\v' || in[i] == '\f' || in[i] == '\r')
-		i++;
-	if (in[i] == '-' || in[i] == '+')
-	{
-		if (in[i] == '-')
-			fac = fac * -1;
-		i++;
-	}
-	result = 0;
-	while (isDigit(in[i]))
-	{
-		result = (result * 10) + (in[i] - '0');
-		i++;
-	}
-	return (result * fac);
-}
-
-/**
  * @brief Handles at most 3 digit long number
  */
 unsigned int Atoi::atoiIp(const std::string &in)

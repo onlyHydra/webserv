@@ -70,12 +70,8 @@ public:
 	// Called by the connection each tick to enforce timeouts and reaping.
 	void onTick(unsigned long long now_ms);
 
-	// Begin header-phase timer (3s by default).
-	void startHeaderPhase(unsigned long long now_ms);
-
 	// Hint from the connection: current client-socket queued bytes.
 	void setClientWaterline(std::size_t bytesQueued) { client_out_bytes_ = bytesQueued; }
-	void reset();    
 
 	void pauseStdoutReads();
 void resumeStdoutReads();

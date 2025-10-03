@@ -57,7 +57,6 @@ src/util/RateLimiter.cpp \
 src/util/TimeUtil.cpp \
 src/util/Util.cpp \
 src/util/ResponseFactory.cpp \
-src/config/CgiSpec.cpp \
 src/config/Location.cpp \
 src/config/MultipartReader.cpp \
 src/config/VirtualServer.cpp \

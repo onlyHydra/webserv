@@ -196,23 +196,6 @@ bool ChunkedReader::parse_size_line() {
 	return true;
 }
 
-bool ChunkedReader::parse_trailers() {
-	// read CRLF-terminated lines until an empty line
-	for (;;) {
-		std::string::size_type eol = linebuf_.find("\r\n");
-		if (eol == std::string::npos) return false; // need more data
-		if (eol == 0) {
-			// end of trailers
-			linebuf_.erase(0, 2);
-			st_ = S_DONE;
-			return true;
-		}
-		// keep trailers if desired; otherwise could drop them
-		trailers_.append(linebuf_, 0, eol + 2);
-		linebuf_.erase(0, eol + 2);
-	}
-}
-
 // ===== main state machine ====================================================
 
 std::size_t ChunkedReader::consume(const char *p, std::size_t n) {

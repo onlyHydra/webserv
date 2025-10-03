@@ -120,23 +120,6 @@ HttpRequest::~HttpRequest()
 {
 }
 
-bool HttpRequest::keepAlive(void) const
-{
-	return (this->conType);
-}
-
-bool HttpRequest::headerAsSize(string k, size_t &v) const
-{
-	(void)k;
-	(void)v;
-	return (true);
-}
-
-string HttpRequest::extension(void) const
-{
-	return ("");
-}
-
 int HttpRequest::handleLineStart(const std::string &in)
 {
     size_t i = 0;
@@ -364,13 +347,6 @@ bool HttpRequest::parse(const char *data, size_t n)
 	return (true);
 }
 
-bool HttpRequest::headersDone(void)
-{
-	if (this->state == BODY || this->state == OVER)
-		return (true);
-	return (false);
-}
-
 string HttpRequest::getMethod(void) const
 {
 	return (this->method);
@@ -389,11 +365,6 @@ string HttpRequest::getPath(void) const
 string HttpRequest::getQuery(void) const
 {
 	return (this->query);
-}
-
-string HttpRequest::getSessId(void) const
-{
-	return (this->session_id);
 }
 
 size_t HttpRequest::getBodyLength(void) const
@@ -424,13 +395,6 @@ string HttpRequest::getHttpVer(void) const
 {
 	return (this->http_version);
 }
-
-string HttpRequest::getBuffer(void) const
-{
-	return (this->buffer);
-}
-
-
 
 // in HttpRequest.cpp
 std::string HttpRequest::takeBuffer() {
@@ -501,60 +465,4 @@ void HttpRequest::cleanupBodyFile(void)
 		this->body_tmp_path.clear();
 		this->body_on_disk_bytes = 0;
 	}
-}
-
-enum HttpRequestState HttpRequest::getState(void) const
-{
-	return (this->state);
-}
-
-size_t HttpRequest::getTotalBytesRead(void) const
-{
-	return (this->totalBytesRead);
-}
-
-size_t HttpRequest::getTotalBytesHandled(void) const
-{
-	return (this->totalBytesHandled);
-}
-
-size_t HttpRequest::getBytesHandledLast(void) const
-{
-	return (this->bytesHandledLast);
-}
-
-std::ostream &operator<<(std::ostream &out, const HttpRequest &target)
-{
-	out << target.getMethod() << " " << target.getPath() << " " << target.getHttpVer() << std::endl;
-	out << target.getHeaders() << std::endl;
-	out.write(target.getBody().data(), target.getBody().size());
-	return (out);
-}
-
-void HttpRequest::setKeepAlive(bool state)
-{
-	this->conType = state;
-}
-
-void HttpRequest::reset()
-{
-	this->method.clear();
-	this->path.clear();
-	this->http_version.clear();
-	this->uri.clear();
-	this->query.clear();
-	this->session_id.clear();
-	this->bodyLength = 0;
-	this->buffer.clear();
-	this->state = START;
-	this->totalBytesRead = 0;
-	this->totalBytesHandled = 0;
-	this->bytesHandledLast = 0;
-	this->conType = true;
-	this->body_on_disk = false;
-	this->body_tmp_path.clear();
-	this->body_on_disk_bytes = 0;
-	this->body.clear();
-	this->headers.clear();
-	this->cookies.clear();
 }

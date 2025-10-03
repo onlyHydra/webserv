@@ -27,12 +27,6 @@ const std::string& FileBodyReader::get_path() const {
     return path;
 }
 
-std::string FileBodyReader::make_template(const std::string &dir, const std::string &prefix)
-{
-	std::string pfx = prefix.empty() ? std::string("webserv_body") : prefix;
-	return join_path(dir, pfx + ".XXXXXX");
-}
-
 FileBodyReader::FileBodyReader(const std::string &tmp_dir)
 	: total(0), done(false), fd(), dir(tmp_dir), prefix("webserv_body"),
 	  path(), pending(), pending_off(0)
