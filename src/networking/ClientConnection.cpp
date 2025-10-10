@@ -673,16 +673,10 @@ void ClientConnection::onTick(unsigned long long now_ms)
     {
         if (outbytes >= HIGH_WATER)
         {
-        #if defined(DEBUG)
-            std::fprintf(stderr, "[CGI][BP] pause stdout (queued=%zu)\n", outbytes);
-        #endif
             cgi.pauseStdoutReads();
         }
         else if (outbytes <= LOW_WATER)
         {
-            #if defined(DEBUG)
-            std::fprintf(stderr, "[CGI][BP] resume stdout (queued=%zu)\n", outbytes);
-            #endif
             cgi.resumeStdoutReads();
         }
     }
@@ -762,12 +756,6 @@ if (state == PH_READ_HEADERS && body) {
     }
 
     if (in_progress) {
-        #if defined(DEBUG)
-        std::fprintf(stderr,
-            "[guard] restoring PH_READ_BODY (bytes=%zu, fixed_target=%zu)\n",
-            (size_t)(body ? body->bytes_received() : 0),
-            (size_t)fixed_body_target_);
-            #endif
         state = PH_READ_BODY;
     }
 }
@@ -919,9 +907,6 @@ void ClientConnection::parseHeaders()
 
 		// ✅ Debug: dump Content-Type after headers parsed
 		std::string ct = req.getHeaders().get("Content-Type");
-		#if defined(DEBUG)
-		std::fprintf(stderr, "[PARSE][HDR] CT='%s'\n", ct.c_str());
-		#endif
 
 		ring.consumed(to_feed);
 		hdr_bytes += to_feed;
@@ -1294,21 +1279,6 @@ void ClientConnection::routeAndBuild()
     const std::string ex_before = req.getHeaders().get("Expect");
     const std::string ho_before = req.getHeaders().get("Host");
 
-	#if defined(DEBUG)
-    std::fprintf(stderr,
-        "[ROUTE][enter] method=%s path=%s disk=%d bodyLen=%lu\n",
-        m.c_str(), p.c_str(),
-        req.isBodyOnDisk()?1:0,
-        (unsigned long)req.getBodyLength());
-		#endif
-
-	#if defined(DEBUG)
-    std::fprintf(stderr,
-        "[ROUTE][HDR] CT(before)='%s' TE='%s' CL='%s' Expect='%s' Host='%s'\n",
-        ct_before.c_str(), te_before.c_str(), cl_before.c_str(),
-        ex_before.c_str(), ho_before.c_str());
-		#endif
-		
     // --- Let the pipeline decide and (possibly) start CGI. ---
     const bool done = ServerPipeline::processRequest(
         server->getConfig(),
@@ -1321,11 +1291,6 @@ void ClientConnection::routeAndBuild()
 
     // After pipeline: did it mutate headers or request?
     const std::string ct_after = req.getHeaders().get("Content-Type");
-	#if defined(DEBUG)
-    std::fprintf(stderr,
-        "[ROUTE][exit ] done=%d cgi.active=%d res.status=%d CT(after)='%s'\n",
-        done?1:0, cgi.isActive()?1:0, res.status, ct_after.c_str());
-		#endif
 
     // One keep-alive decision used by both paths
     const std::string connHdr = req.getHeaders().get("Connection");
@@ -1338,12 +1303,6 @@ void ClientConnection::routeAndBuild()
         // Asynchronous path (e.g., CGI or Proxy tunnel) — write whatever is queued so far
         state = PH_WRITE;
         resetDeadline(WR_TIMEOUT_MS);
-	#if defined(DEBUG)
-        std::fprintf(stderr,
-            "[ROUTE] async path -> PH_WRITE keep-alive=%d queued=%lu\n",
-            should_close?0:1,
-            (unsigned long)io.getChainBuf().getByteSize());
-	#endif
         return;
     }
 
@@ -1435,9 +1394,6 @@ void ClientConnection::finishWriteOrNext()
         // one more opportunistic write (usually nothing) and set deadline
         (void)io.nb_write();
         resetDeadline(WR_TIMEOUT_MS);
-	#if defined(DEBUG)
-        std::fprintf(stderr, "[write] done -> PH_CLOSE (KA=0)\n");
-	#endif
         return;
     }
 
@@ -1445,10 +1401,6 @@ void ClientConnection::finishWriteOrNext()
     io.getFlow().setReadPaused(false);
     state = PH_READ_HEADERS;
     resetDeadline(IDLE_TIMEOUT_MS);
-
-	#if defined(DEBUG)
-    std::fprintf(stderr, "[write] done -> PH_READ_HEADERS (KA=1)\n");
-	#endif
 
     // If the peer has already pipelined the next request, parse it now
     if (io.getInputRing().readAvail() > 0)

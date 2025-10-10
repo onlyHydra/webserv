@@ -335,13 +335,6 @@ class Server
 			delete c;
 		}
 
-
-		#ifdef UNIT_TEST
-		public:
-			size_t listenerCount() const { return listeners.size(); }
-			int    listenerFD(size_t i) const { return (i < listeners.size() && listeners[i]) ? listeners[i]->getFD() : -1; }
-			int    listenerPortAt(size_t i) const { return (i < listeners.size() && listeners[i]) ? listeners[i]->getPort() : -1; }
-		#endif
 };
 
 

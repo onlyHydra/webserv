@@ -169,13 +169,6 @@ int CgiHandler::buildEnv(const HttpRequest &req,
     // Common for php-cgi; harmless otherwise
     envv.push_back("REDIRECT_STATUS=200");
 
-#ifdef CGI_ENV_DEBUG
-    for (size_t i = 0; i < envv.size(); ++i) {
-        if (envv[i].rfind("QUERY_STRING=", 0) == 0 || envv[i].rfind("REQUEST_URI=", 0) == 0)
-            std::fprintf(stderr, "[CGI-ENV] %s\n", envv[i].c_str());
-    }
-#endif
-
     return static_cast<int>(envv.size());
 }
 
@@ -234,11 +227,6 @@ It returns false to indicate asynchronous processing; the EventLoop and ClientHa
 
 bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
-	#if defined(DEBUG)
-	std::fprintf(stderr, "[CGI] handle enter method=%s path=%s body_len=%zu temp=%d\n",
-			req.getMethod().c_str(), req.getPath().c_str(),
-			(size_t)req.getBodyLength(), (int)ctx.temp_file_used);
-#endif
 
 	// 0) Resolve CGI spec (per-location overrides global)
 	CgiRegistry reg;
@@ -309,9 +297,6 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
 		int out = ctx.cgi_streamer->cgiStdoutFD();
 		(void)in;
 		(void)out;
-		#if defined(DEBUG)
-		std::fprintf(stderr, "[CGI] begin ok inFD=%d outFD=%d\n", in, out);
-#endif
 	}
 	// <<<----------------------------------------------------------------->>>
 
@@ -324,9 +309,6 @@ bool CgiHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx
 		int outFD = ctx.cgi_streamer->cgiStdoutFD();
 		(void)inFD;
 		(void)outFD;
-		#if defined(DEBUG)
-		std::fprintf(stderr, "[CGI] register POLLOUT for inFD=%d; POLLIN for outFD=%d\n", inFD, outFD);
-#endif
 	} else if (req.getMethod() != "POST") {
 		// For GET/HEAD with no body, close stdin so the CGI won’t hang waiting for EOF.
 		ctx.cgi_streamer->closeStdin();
