@@ -415,7 +415,7 @@ static bool serveErrorPage(int code,
 	{
     	// Fallback, make current path as root (/home/whatever/www)
 		char c_path[PATH_MAX];
-		getcwd(c_path, sizeof(c_path));
+		Util::getcwd(c_path, sizeof(c_path));
 		base = "/";
 		base = std::string(c_path) + std::string("/www");
 	}
