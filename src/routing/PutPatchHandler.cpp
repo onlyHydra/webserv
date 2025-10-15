@@ -381,7 +381,9 @@ bool PutPatchHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext
 		return (createFailResponse(res, HTTP_BAD_REQUEST));
 
 	// Get target file
-	std::string pathStr = ctx.effective_root + ctx.rel_path;
+	char cwd[PATH_MAX];
+	Util::getcwd(cwd, PATH_MAX);
+	std::string pathStr = std::string(cwd) + ctx.effective_root + ctx.rel_path;
 	const char *path = pathStr.c_str();
 
 	// Generate Etag
