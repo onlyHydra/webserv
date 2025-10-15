@@ -362,7 +362,7 @@ void ClientConnection::serviceProxyTunnel()
 		} // else: still connecting
 	}
 
-	// 2) write pending request head/body to upstream
+	// 2) write pending request head/body to upstream (non-blocking; no errno checks)
 	if (proxy_.connect_done && proxy_.ufd >= 0)
 	{
 		// write head
@@ -375,19 +375,14 @@ void ClientConnection::serviceProxyTunnel()
 			{
 				proxy_.to_up_off += (size_t)n;
 				progressed = true;
+				continue;
 			}
-			else
-			{
-				if (n < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
-					break;
-				if (n < 0 && errno == EINTR)
-					continue;
-				fail(502, "Bad Gateway");
-				::close(proxy_.ufd);
-				proxy_.ufd = -1;
-				proxy_.active = false;
-				return;
+			if (n == 0) {
+				// no progress; back off until next POLLOUT
+				break;
 			}
+			// n < 0: do NOT inspect errno; just stop writing this tick
+			break;
 		}
 		// write body (if any)
 		while (proxy_.to_up_off >= proxy_.to_upstream.size() &&
@@ -400,23 +395,18 @@ void ClientConnection::serviceProxyTunnel()
 			{
 				proxy_.body_off += (size_t)n;
 				progressed = true;
+				continue;
 			}
-			else
-			{
-				if (n < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
-					break;
-				if (n < 0 && errno == EINTR)
-					continue;
-				fail(502, "Bad Gateway");
-				::close(proxy_.ufd);
-				proxy_.ufd = -1;
-				proxy_.active = false;
-				return;
+			if (n == 0) {
+				// no progress; back off until next POLLOUT
+				break;
 			}
+			// n < 0: do NOT inspect errno; just stop writing this tick
+			break;
 		}
 	}
 
-	// 3) read from upstream → queue to client outbound buffer
+	// 3) read from upstream → queue to client outbound buffer (no errno checks)
 	if (proxy_.ufd >= 0)
 	{
 		std::vector<char> &tmp = io.getTmp();
@@ -430,6 +420,7 @@ void ClientConnection::serviceProxyTunnel()
 			{
 				io.getChainBuf().push_copy(&tmp[0], (size_t)r);
 				progressed = true;
+				continue;
 			}
 			else if (r == 0)
 			{
@@ -439,18 +430,8 @@ void ClientConnection::serviceProxyTunnel()
 				should_close = true; // simplest: close after upstream closes
 				break;
 			}
-			else
-			{
-				if (errno == EWOULDBLOCK || errno == EAGAIN)
-					break;
-				if (errno == EINTR)
-					continue;
-				fail(502, "Bad Gateway");
-				::close(proxy_.ufd);
-				proxy_.ufd = -1;
-				proxy_.active = false;
-				return;
-			}
+			// r < 0: no progress; do NOT check errno. Back off until next POLLIN or HUP/ERR.
+			break;
 		}
 	}
 

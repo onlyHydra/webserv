@@ -930,20 +930,8 @@ void CGIStreamer::onCgiReadable(int fd)
 			return;
 		}
 
-		// r < 0 (non-blocking read)
-		if (errno == EINTR)
-		{
-			continue;
-		}
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
-		{
-			break;
-		}
-
-		// Hard error → stop this CGI cleanly
-		closeStdout();
-		cgi_active_ = false;
-		failed_ = true;
+		// r < 0: no progress. Do NOT inspect errno; just stop and try again
+		// when poll() signals readability or HUP/ERR.
 		return;
 	}
 }
@@ -1016,25 +1004,14 @@ void CGIStreamer::onCgiWritable(int fd)
 
 		char small[16384];
 
-		// -------------------------
-		// Use read() instead of pread()
-		// -------------------------
-		ssize_t r;
-		do
-		{
-			r = ::read(body_fd_, small, to_read);
-		} while (r < 0 && errno == EINTR);
+		// Read a chunk from the temp file (regular file; no poll needed).
+		// No errno-branching: if r < 0, just stop and try again next POLLOUT tick.
+		ssize_t r = ::read(body_fd_, small, to_read);
 
-		if (r < 0)
+		if (r <= 0)
 		{
-			if (errno == EAGAIN)
-				return; // retry later
-			closeStdin();
-			return;
-		}
-		if (r == 0)
-		{
-			// End of file reached prematurely; retry later
+			// r == 0 → EOF early (unexpected) or r < 0 → read failed/transient.
+			// Do NOT inspect errno; just retry on next wakeup.
 			return;
 		}
 
@@ -1054,22 +1031,14 @@ void CGIStreamer::onCgiWritable(int fd)
 					closeStdin();
 					return;
 				}
+				continue;
 			}
-			else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-			{
-				// Pipe full; we’ll retry from the same logical offset on next POLLOUT
-				break;
-			}
-			else if (w < 0 && errno == EINTR)
-			{
-				continue; // retry same write
-			}
-			else
-			{
-				// Broken pipe / other error
-				closeStdin();
+			if (w == 0) {
+				// No progress; rare on pipes, treat like backpressure.
 				return;
 			}
+			// w < 0: do NOT check errno. Back off and wait for next POLLOUT or error/hup.
+			return;
 		}
 
 		return;
@@ -1113,25 +1082,18 @@ void CGIStreamer::onCgiWritable(int fd)
 				closeStdin();
 				return;
 			}
+			continue;
 		}
-		else
+
+		if (w == 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				return;
-			}
-			if (errno == EINTR)
-			{
-				continue;
-			}
-			if (errno == EPIPE)
-			{
-				closeStdin();
-				return;
-			}
-			closeStdin();
+			// No progress; back off and let poll drive the next attempt.
 			return;
 		}
+
+		// w < 0: do NOT inspect errno (EAGAIN/EWOULDBLOCK/EINTR/EPIPE, etc.).
+		// Simply return; POLLOUT or HUP/ERR will wake us appropriately.
+		return;
 	}
 }
 
