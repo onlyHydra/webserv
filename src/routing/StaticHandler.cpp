@@ -407,7 +407,17 @@ static bool serveErrorPage(int code,
     }
 
     // 2) Build filesystem path: effective_root (or loc root, else vs root) + uri
-	std::string base = ctx.effective_root;
+	std::string base;
+	if (ctx.vs && !ctx.vs->root.empty())
+		base = ctx.vs->root;
+	else
+	{
+    	// Fallback, make current path as root (/home/whatever/www)
+		char c_path[PATH_MAX];
+		Util::getcwd(c_path, sizeof(c_path));
+		base = "/";
+		base = std::string(c_path) + std::string("/www");
+	}
 
     // 3) Canonicalize and safety check
     std::string path = base + uri;
