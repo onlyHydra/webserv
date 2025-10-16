@@ -407,18 +407,7 @@ static bool serveErrorPage(int code,
     }
 
     // 2) Build filesystem path: effective_root (or loc root, else vs root) + uri
-	std::string base;
-	// Try to use Virtual Servers root as root for errors
-	if (ctx.vs && !ctx.vs->root.empty())
-		base = ctx.vs->root;
-	else
-	{
-    	// Fallback, make current path as root (/home/whatever/www)
-		char c_path[PATH_MAX];
-		Util::getcwd(c_path, sizeof(c_path));
-		base = "/";
-		base = std::string(c_path) + std::string("/www");
-	}
+	std::string base = ctx.effective_root;
 
     // 3) Canonicalize and safety check
     std::string path = base + uri;
@@ -455,6 +444,7 @@ static bool serveErrorPage(int code,
 StaticHandler::StaticHandler() {}
 StaticHandler::~StaticHandler() {}
 
+#include <iostream>
 bool StaticHandler::handleGet(const std::string &canonPath, const std::string &rel, \
 	bool is_head, HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
@@ -569,6 +559,7 @@ bool StaticHandler::handleDelete(const std::string &path, HttpResponse res, Requ
 {
 	struct stat st;
 
+	std::cout << "Delete called on path " << path << std::endl;
 	// Check if target exists
 	if (::stat(path.c_str(), &st) != 0)
 		return (serveErrorPage(HTTP_NOT_FOUND, ctx, res, false));
@@ -583,8 +574,10 @@ bool StaticHandler::handleDelete(const std::string &path, HttpResponse res, Requ
     return (prepareResponse(res, HTTP_OK, true));
 }
 
+
 bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
+	std::cout << "Handle started" << std::endl;
     // Only GET/HEAD; soft-fail others with empty body (serializer always sends 200).
     const std::string m = req.getMethod();
     const bool is_head = (m == "HEAD");
@@ -596,15 +589,23 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
         return (prepareResponse(res, true));
     }
 
+	std::cout << "-- Effective root: " << ctx.effective_root << std::endl;
+	std::cout << "Locations root: " << ctx.loc->root << std::endl;
+	std::cout << "VS root: " << ctx.vs->root << std::endl;
     // Prefer router/pipeline-computed paths
     const std::string base = !ctx.effective_root.empty()
         ? ctx.effective_root
         : ((ctx.loc && !ctx.loc->root.empty()) ? ctx.loc->root : ctx.vs->root);
 
+		std::cout << "-- Relative path: " << ctx.rel_path << std::endl;
+		std::cout << "Requests path: " << req.getPath() << std::endl;
     // Original URI (as path) -> rel always begins with '/'
     std::string rel = !ctx.rel_path.empty() ? ctx.rel_path : req.getPath();
     if (rel.empty() || rel[0] != '/') rel = "/" + rel;
 
+	std::cout << "Base: " << base << std::endl;
+	std::cout << "Rel: " << rel << std::endl;
+	std::cout << "Matched Prefix: " << ctx.matched_prefix << std::endl;
 
         // ---------------- try_files resolution (if configured) ----------------
     // Build candidate list from location.try_files; support $uri expansion and =CODE
@@ -680,7 +681,9 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
         bool picked = false;
         for (size_t i = 0; i < cand.size(); ++i) {
             const std::string full = FS::join(base, cand[i]);
+			std::cout << "Checking " << full << std::endl;
             if (FS::exists(full)) {
+				std::cout << "Rel: " << cand[i] << std::endl;
                 rel = cand[i]; // adopt this URI
                 picked = true;
                 break;
@@ -690,6 +693,7 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
         if (!picked) {
             // No candidate existed: if terminal code given, return it.
             if (terminal_code > 0) {
+				std::cout << "No Candidate picked" << std::endl;
                 return serveErrorPage(terminal_code, ctx, res, is_head);
             }
             // Else if rewrite URI present, adopt it (even if it doesn't exist,
@@ -703,11 +707,14 @@ bool StaticHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &
 
     // ---------------------------------------------------------------------
 
+	std::cout << "Base: " << base << std::endl;
+	std::cout << "Rel: " << rel << std::endl;
     // Build FS candidate from (possibly updated) rel
     std::string fsCandidate = base;
     if (!fsCandidate.empty() && fsCandidate[fsCandidate.size() - 1] == '/')
         fsCandidate.erase(fsCandidate.size() - 1);
     fsCandidate += rel;
+	std::cout << "fsCandidate: " <<fsCandidate << std::endl;
 
     // Canonicalize and block traversal
     std::string canonRoot, canonPath;

@@ -70,9 +70,6 @@ ClientConnection::ClientConnection(int fd, Server *s, unsigned long long nowMs)
 	  fixed_body_target_((std::size_t)-1), // <— add this
 	  ip(),
       ctx(NULL),
-      body_expected_(0),
-      body_received_(0),
-      body_fd_(0),
       body_path_(""),
       cgi_error_latched(false),
       local_port(0),

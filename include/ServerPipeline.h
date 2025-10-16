@@ -7,7 +7,7 @@ class HttpRequest;
 class HttpResponse;
 class CGIStreamer;
 class ClientConnection;
-class RouteDecision;
+struct RouteDecision;
 
 class ServerPipeline
 {

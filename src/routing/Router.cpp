@@ -224,7 +224,16 @@ void Router::makeDecisionForVS(const ServerConfig &cfg,
 		out.rel_path = std::string("/") + out.rel_path;
 	// effective root
 	if (L && !L->root.empty())
-		out.effective_root = L->root;
+	{
+		struct stat st;
+		if(::stat(L->root.c_str(), &st) == 0)
+			out.effective_root = L->root;
+		else
+		{
+			size_t pos = vs.root.rfind('/');
+			out.effective_root = vs.root.substr(0, pos) + L->root;
+		}
+	}
 	else
 		out.effective_root = vs.root;
 

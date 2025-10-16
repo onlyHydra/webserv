@@ -149,9 +149,6 @@ private:
     std::string   ip; // Ip of the client (socket)
 
     RouteDecision *ctx;
-    size_t        body_expected_;     // from Content-Length
-    size_t        body_received_;     // progresses to body_expected_
-    int           body_fd_;           // -1 if using RAM
     std::string   body_path_;         // temp file path if body_fd_ >= 0
 
     bool cgi_error_latched;

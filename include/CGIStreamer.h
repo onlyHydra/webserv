@@ -147,8 +147,6 @@ private:
 
 	// in CGIStreamer.h (private:)
 	std::vector<char> mem_body_;   // staged in-memory request body
-	std::size_t       mem_off_;    // how many bytes already written to CGI stdin
-	bool              using_mem_;  // true if we're feeding from mem_body_
 
 	// ---- stdin feed (request body → CGI) ----
 	std::vector<char> in_mem_body_;  // snapshot of in-RAM request body
