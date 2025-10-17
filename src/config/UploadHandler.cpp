@@ -169,15 +169,15 @@ bool UploadHandler::onPartEnd() {
 }
 
 // ---- handler entry ----
-bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& ctx)
+bool UploadHandler::handle(HttpRequest &req, HttpResponse &res, RequestContext &ctx)
 {
     // ---------- helpers ----------
     struct Err {
-        static bool send(HttpResponse& res, int code, const std::string& msg, bool close)
+        static bool send(HttpResponse &res, int code, const std::string &msg, bool close)
         {
             std::string text = msg + "\n";
             res.status = code;
-            if      (code == 415) res.reason = "Unsupported Media Type";
+            if (code == 415)      res.reason = "Unsupported Media Type";
             else if (code == 409) res.reason = "Conflict";
             else if (code == 413) res.reason = "Payload Too Large";
             else if (code >= 500) res.reason = "Internal Server Error";
@@ -195,26 +195,23 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     };
 
     // Sniff boundary from the beginning of a multipart body if Content-Type is missing.
-    // We look for a first line like:  "--<boundary>\r\n"
     struct Sniffer {
-        static std::string sniffFromMem(const std::vector<char>& v)
+        static std::string sniffFromMem(const std::vector<char> &v)
         {
             if (v.size() < 6) return std::string(); // minimal "--x\r\n"
-            // find end of first line (CRLF or LF)
             std::size_t i = 0, n = v.size();
             while (i < n && v[i] != '\n' && !(i + 1 < n && v[i] == '\r' && v[i + 1] == '\n')) ++i;
             if (i == 0 || i >= n) return std::string();
             std::string line(&v[0], &v[0] + i);
             if (line.size() >= 3 && line[0] == '-' && line[1] == '-') {
                 std::string b = line.substr(2);
-                // trim simple spaces/tabs defensively
                 while (!b.empty() && (b[b.size()-1] == ' ' || b[b.size()-1] == '\t')) b.erase(b.size()-1);
-                while (!b.empty() && (b[0] == ' ' || b[0] == '\t')) b.erase(0,1);
+                while (!b.empty() && (b[0] == ' ' || b[0] == '\t')) b.erase(0, 1);
                 if (!b.empty()) return b;
             }
             return std::string();
         }
-        static std::string sniffFromFile(const std::string& path)
+        static std::string sniffFromFile(const std::string &path)
         {
             int fd = ::open(path.c_str(), O_RDONLY);
             if (fd < 0) return std::string();
@@ -227,12 +224,6 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
         }
     };
 
-    // ---------- debug: quick summary ----------
-    // std::cerr << "[UPLOAD] disk=" << (req.isBodyOnDisk()?1:0)
-    //           << " mem="  << (unsigned long)req.getBodyLength()
-    //           << " CT(raw)=" << req.getHeaders().get("Content-Type")
-    //           << std::endl;
-
     // ---------- per-request reset ----------
     saved_.clear();
     last_error_code_ = 0;
@@ -240,71 +231,140 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     if (cur_fd_ >= 0) { ::close(cur_fd_); cur_fd_ = -1; }
 
     // ---------- config ----------
-    const Location* L = ctx.loc;
-    if (!L) {
-        return Err::send(res, 500, "No location", true);
-    }
-    upload_dir_   = L->upload_store;
-    overwrite_    = L->upload_overwrite;
-    per_part_cap_ = L->upload_max_file_size;
+    const Location *L = ctx.loc;
+    if (!L) return Err::send(res, 500, "No location", true);
+
+    upload_dir_    = L->upload_store;
+    overwrite_     = L->upload_overwrite;
+    per_part_cap_  = L->upload_max_file_size;
 
     if (upload_dir_.empty())
         return Err::send(res, 501, "Uploads disabled (upload_store empty)", true);
     if (!ensureUploadDirIsSafe(upload_dir_))
         return Err::send(res, 500, "Bad upload_store (missing or not a directory)", true);
 
-    // ---------- content-type (prefer header; fallback to sniff) ----------
+    // ---------- content-type (prefer header; robust fallback to sniff) ----------
+// ---------- content-type (robust) ----------
     std::string ctype = req.getHeaders().get("Content-Type");
-
     std::string body_file = req.getBodyFilePath();
     std::vector<char> mem;
     if (body_file.empty())
         mem = req.readBodyToVector();
 
-    if (ctype.empty()) {
-        std::string b = !body_file.empty()
-                        ? Sniffer::sniffFromFile(body_file)
-                        : Sniffer::sniffFromMem(mem);
-        if (!b.empty()) {
-            ctype = "multipart/form-data; boundary=" + b;
-        }
-    }
+    // debug: what did we get?
+    std::fprintf(stderr, "[UPLOAD] Raw Content-Type: '%s' (body_file=%s, mem=%lu)\n",
+                ctype.c_str(), body_file.empty() ? "mem" : body_file.c_str(),
+                (unsigned long)mem.size());
 
-    // Validate multipart/form-data prefix (case-insensitive)
-    bool ct_ok = false;
+    // small helpers
+    struct Str {
+        static std::string trim(const std::string &s){
+            std::string r = s;
+            while(!r.empty() && (r[0]==' '||r[0]=='\t')) r.erase(0,1);
+            while(!r.empty() && (r[r.size()-1]==' '||r[r.size()-1]=='\t')) r.erase(r.size()-1);
+            return r;
+        }
+        static void tolower(std::string &s){
+            for (size_t i=0;i<s.size();++i) if (s[i]>='A'&&s[i]<='Z') s[i]=char(s[i]-'A'+'a');
+        }
+    };
+
+    // Parse media type and boundary (accept quotes, extra params, odd spacing)
+    std::string mainType;
+    std::string boundaryParam;
+
     if (!ctype.empty()) {
-        const char* want = "multipart/form-data";
-        // C++98: lowercase the prefix and compare
-        std::string pref = ctype.substr(0, 19);
-        for (std::size_t i = 0; i < pref.size(); ++i) {
-            char ch = pref[i];
-            if (ch >= 'A' && ch <= 'Z') pref[i] = char(ch - 'A' + 'a');
-        }
-        ct_ok = (pref == want);
-    }
-    if (!ct_ok)
-        return Err::send(res, 415, "multipart/form-data required", false);
+        std::string t = ctype;
+        // split at ';'
+        std::string::size_type sc = t.find(';');
+        std::string mt = (sc==std::string::npos) ? t : t.substr(0, sc);
+        Str::tolower(mt);
+        mainType = Str::trim(mt);
 
-    // ---------- parse multipart ----------
-    MultipartReader mp;
-    if (!mp.initFromContentType(ctype)) {
+        // scan params for boundary=
+        std::string params = (sc==std::string::npos) ? "" : t.substr(sc+1);
+        // tokenize params by ';'
+        std::string::size_type pos = 0;
+        while (pos < params.size()) {
+            std::string::size_type next = params.find(';', pos);
+            std::string part = (next==std::string::npos) ? params.substr(pos) : params.substr(pos, next-pos);
+            part = Str::trim(part);
+            // case-insensitive compare startswith "boundary="
+            if (part.size() >= 9) {
+                std::string key = part.substr(0, 8); Str::tolower(key);
+                if (key == "boundary") {
+                    // support "boundary = value" and "boundary=value"
+                    std::string::size_type eq = part.find('=');
+                    if (eq != std::string::npos) {
+                        std::string val = Str::trim(part.substr(eq+1));
+                        // strip optional quotes
+                        if (!val.empty() && (val[0]=='"' || val[0]=='\'')) {
+                            char q = val[0];
+                            if (val.size()>=2 && val[val.size()-1]==q) val = val.substr(1, val.size()-2);
+                        }
+                        boundaryParam = val;
+                    }
+                }
+            }
+            if (next==std::string::npos) break;
+            pos = next+1;
+        }
+    }
+
+    // If header missing or no usable boundary → sniff and synthesize
+    if (ctype.empty() || mainType != "multipart/form-data" || boundaryParam.empty()) {
+        // read start of body (mem or first 4096 of file) and sniff
+        std::string sniffed = !body_file.empty()
+                                ? Sniffer::sniffFromFile(body_file)
+                                : Sniffer::sniffFromMem(mem);
+        if (!sniffed.empty()) {
+            mainType = "multipart/form-data";
+            boundaryParam = sniffed;
+            ctype = "multipart/form-data; boundary=" + sniffed;
+        }
+    }
+
+    // Hard check on type
+    if (mainType != "multipart/form-data") {
+        std::fprintf(stderr, "[UPLOAD] Reject: mainType='%s'\n", mainType.c_str());
         return Err::send(res, 415, "multipart/form-data required", false);
+    }
+
+    // Initialize parser; retry once if it fails
+    MultipartReader mp;
+    bool init_ok = mp.initFromContentType(ctype);
+    if (!init_ok) {
+        // as a last resort, rebuild from sniff even if we had a boundary
+        std::string sniffed = !body_file.empty()
+                                ? Sniffer::sniffFromFile(body_file)
+                                : Sniffer::sniffFromMem(mem);
+        if (!sniffed.empty()) {
+            std::string rebuilt = "multipart/form-data; boundary=" + sniffed;
+            if (rebuilt != ctype) {
+                ctype = rebuilt;
+                init_ok = mp.initFromContentType(ctype);
+            }
+        }
+    }
+    if (!init_ok) {
+        std::fprintf(stderr, "[UPLOAD] Reject: initFromContentType failed. ctype='%s'\n", ctype.c_str());
+        return Err::send(res, 415, "multipart/form-data required (bad or missing boundary)", false);
     }
 
     if (body_file.empty() && mem.empty())
         return Err::send(res, 400, "Body unavailable (no temp file, no memory body)", true);
 
+
+    // ---------- feed body to parser ----------
     const std::size_t CHUNK = 64 * 1024;
-    if (!body_file.empty())
-    {
+    if (!body_file.empty()) {
         int fd = ::open(body_file.c_str(), O_RDONLY);
         if (fd < 0) {
             std::ostringstream m; m << "Body file open failed: " << body_file << " errno=" << errno;
             return Err::send(res, 400, m.str(), true);
         }
         std::vector<char> buf; buf.resize(CHUNK);
-        for (;;)
-        {
+        for (;;) {
             ssize_t r = ::read(fd, &buf[0], (int)buf.size());
             if (r == 0) break;
             if (r < 0) {
@@ -316,11 +376,8 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
             if (mp.error()) { ::close(fd); break; }
         }
         ::close(fd);
-    }
-    else
-    {
-        if (!mem.empty())
-            mp.feed(&mem[0], mem.size(), this);
+    } else {
+        if (!mem.empty()) mp.feed(&mem[0], mem.size(), this);
     }
 
     // ---------- errors ----------
@@ -335,11 +392,8 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
         return Err::send(res, 400, "Incomplete multipart (no closing boundary)", false);
 
     // ---------- success ----------
-    std::ostringstream ok;
-    ok << "Uploaded:";
-    for (size_t i = 0; i < saved_.size(); ++i)
-        ok << (i ? ", " : " ") << saved_[i];
-
+    std::ostringstream ok; ok << "Uploaded:";
+    for (size_t i = 0; i < saved_.size(); ++i) ok << (i ? ", " : " ") << saved_[i];
     std::string text = ok.str() + "\n";
     res.status = saved_.empty() ? 200 : 201;
     res.reason = saved_.empty() ? "OK" : "Created";
@@ -352,6 +406,4 @@ bool UploadHandler::handle(HttpRequest& req, HttpResponse& res, RequestContext& 
     res.headers.set("Server", "webserv/1.0");
     return true;
 }
-
-
 
